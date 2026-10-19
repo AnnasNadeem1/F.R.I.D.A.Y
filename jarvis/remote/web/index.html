@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#07090d">
+<title>F.R.I.D.A.Y.</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<style>
+  :root {
+    --bg: #07090d; --panel: #0c1016; --text: #ece6dc; --dim: #7f8590; --faint: #5c626c;
+    --amber: #ff9f43; --teal: #2fe3c4; --violet: #b48cff; --red: #ff4d5e; --line: #1d232c;
+    --head: "Bahnschrift", "DIN Alternate", "Roboto Condensed", system-ui, sans-serif;
+    --mono: "Cascadia Mono", "Roboto Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+    background-image: linear-gradient(rgba(255,159,67,.035) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,159,67,.035) 1px, transparent 1px);
+    background-size: 28px 28px; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px 6px; }
+  #core { width: 84px; height: 84px; flex: none; }
+  .title { font-family: var(--head); font-weight: 600; font-size: 22px; letter-spacing: 5px; color: var(--amber); }
+  #state { font-family: var(--head); font-size: 12px; letter-spacing: 3px; margin-top: 2px; }
+  #activity { color: var(--dim); font-style: italic; font-size: 13px; min-height: 18px; }
+  main { flex: 1; min-height: 0; margin: 4px 12px 0; position: relative; background: var(--panel);
+    border: 1px solid rgba(255,159,67,.13); border-radius: 6px; display: flex; flex-direction: column; }
+  main::before, main::after, .corner-b::before, .corner-b::after { content: ""; position: absolute; width: 14px; height: 14px;
+    border-color: rgba(255,159,67,.75); border-style: solid; pointer-events: none; }
+  main::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+  main::after { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+  .corner-b::before { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
+  .corner-b::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+  #log { flex: 1; overflow-y: auto; padding: 6px 14px 14px; scroll-behavior: smooth; }
+  .msg { margin-top: 14px; }
+  .tag { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; margin-bottom: 2px; }
+  .you .tag { color: var(--teal); } .ai .tag { color: var(--amber); }
+  .ai .body { color: #f4dcc0; } .err { color: var(--red); } .note { color: var(--faint); font-family: var(--mono);
+    font-size: 11px; letter-spacing: 2px; margin-top: 18px; }
+  #live { color: var(--teal); font-family: var(--mono); font-size: 13px; padding: 0 14px 6px; min-height: 0; }
+  footer { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  #talk { width: 92px; height: 92px; border-radius: 50%; border: 2px solid var(--amber); background:
+    radial-gradient(circle at 40% 35%, rgba(255,184,107,.35), rgba(255,159,67,.08) 60%, transparent 70%);
+    color: var(--amber); font-family: var(--head); letter-spacing: 2px; font-size: 12px; touch-action: none;
+    user-select: none; -webkit-user-select: none; transition: transform .12s, border-color .12s, color .12s; }
+  #talk.rec { border-color: var(--teal); color: var(--teal); transform: scale(1.08);
+    box-shadow: 0 0 0 6px rgba(47,227,196,.12), 0 0 30px rgba(47,227,196,.25); }
+  #talk:disabled { opacity: .4; }
+  form { display: flex; gap: 8px; width: 100%; }
+  input { flex: 1; min-width: 0; background: #0f141c; color: var(--text); border: 1px solid #222a35;
+    border-radius: 6px; padding: 11px 12px; font: 15px var(--mono); }
+  input:focus { outline: none; border-color: var(--amber); }
+  button.small { background: rgba(255,159,67,.1); border: 1px solid var(--amber); color: var(--amber);
+    border-radius: 6px; padding: 0 14px; font-family: var(--head); letter-spacing: 1px; font-size: 13px; }
+  #bar { display: flex; gap: 8px; justify-content: center; }
+  #bar button { background: transparent; border: 1px solid #2a2f38; color: var(--dim); border-radius: 14px;
+    padding: 5px 12px; font-family: var(--head); font-size: 11px; letter-spacing: 1px; }
+  #pair { display: none; padding: 40px 24px; text-align: center; color: var(--dim); }
+  #pair h2 { font-family: var(--head); color: var(--amber); letter-spacing: 3px; font-weight: 600; }
+  .hint { color: var(--faint); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <canvas id="core" width="168" height="168"></canvas>
+  <div>
+    <div class="title" id="title">F.R.I.D.A.Y.</div>
+    <div id="state" style="color:#8a8f98">● CONNECTING</div>
+    <div id="activity"></div>
+  </div>
+</header>
+
+<div id="pair">
+  <h2>NOT PAIRED</h2>
+  <p>On your PC, open the assistant's window, go to <b>PHONE</b>, and scan the QR code with this phone's camera.</p>
+  <p class="hint">Pairing gives this phone a private key. Only paired phones can talk to your assistant.</p>
+</div>
+
+<main id="main">
+  <div id="log"></div>
+  <div id="live"></div>
+  <span class="corner-b"></span>
+</main>
+
+<footer id="controls">
+  <button id="talk" disabled>HOLD<br>TO TALK</button>
+  <form id="form" autocomplete="off">
+    <input id="text" placeholder="›  Type a message..." enterkeyhint="send">
+    <button class="small" type="submit">SEND</button>
+  </form>
+  <div id="bar">
+    <button id="notify" type="button">ENABLE NOTIFICATIONS</button>
+    <button id="voiceToggle" type="button">VOICE: ON</button>
+  </div>
+</footer>
+<script src="/app.js"></script>
+</body>
+</html>

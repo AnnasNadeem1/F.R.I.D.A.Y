@@ -1,0 +1,8 @@
+# Words speech recognition should expect: places, people's names, brands, jargon.
+# One per line or comma-separated. Lines starting with # are ignored.
+# Keep it to the words you actually say; a very long list makes recognition worse.
+
+Jarvis, Friday
+Rawalpindi, Islamabad, Lahore, Karachi, Peshawar, Multan, Faisalabad, Quetta
+Murree, Gilgit, Hunza, Skardu, Sialkot, Abbottabad
+Pakistan

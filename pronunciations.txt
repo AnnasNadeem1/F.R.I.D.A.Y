@@ -1,0 +1,11 @@
+# How Jarvis should SAY words it mispronounces: names, Urdu words, places.
+# Format:   word = how it sounds
+# Write the right side the way you'd spell it out phonetically for an English
+# speaker. Hyphens split syllables. Try it with Settings -> "Say it".
+# Changes apply immediately, with no restart needed.
+#
+# Examples (remove the # to use):
+# Rawalpindi = Ruh-waal-pindi
+# Ayesha = Aa-ee-sha
+
+Annas = an-nass
