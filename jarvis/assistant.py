@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Iterator
 
-from . import claude_bridge, classroom, email_tools, google_tools, reminders, web_tools  # noqa: F401  (register their tools)
+from . import briefing, claude_bridge, claude_tasks, classroom, email_tools, google_tools, reminders, web_tools  # noqa: F401  (register their tools)
 from .config import settings
 from .llm import Done, Provider, ToolCall
 from .memory import facts_for_prompt
@@ -29,6 +29,10 @@ ABOUT_YOURSELF = (
     "If Google Classroom is connected, you also remind them automatically before unfinished assignments "
     f"are due ({settings.classroom_remind_hours} hours before) and drop those reminders once the work is "
     "turned in; they can cancel any of them. "
+    "You can start Claude Code tasks in their allowed projects, but only in two steps: claude_task_prepare, then "
+    "read the plan back (project, what Claude will do, and whether it may change files) and ask 'Shall I start "
+    "it?', and only after a clear yes call claude_task_start. Claude starts with no memory of this conversation, "
+    "so write the task out in full. "
     "This needs you to be running; you can't notify them while you're off."
 )
 
@@ -55,6 +59,8 @@ def system_prompt() -> str:
         "For anything current or that you're not sure of (news, prices, sports, facts that change, people), "
         "search the web rather than guessing, then answer in a sentence or two and mention the source by name "
         "(e.g. 'according to Dawn'). Read a page only when the search snippets aren't enough. "
+        "When you mention school classes, use short natural names ('Deep Learning', 'Entrepreneurship') and drop "
+        "section codes, semesters, shifts and times from the name. "
         "If a request is ambiguous, ask one short clarifying question. "
         "When the user shares something worth knowing long term, save it with the remember tool; "
         "only say you'll remember something if you actually called it. "

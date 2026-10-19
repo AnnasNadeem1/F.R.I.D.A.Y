@@ -130,6 +130,24 @@ def _classroom():
     return OK, f"{len(r['courses'])} active classes"
 
 
+def _claude_cli():
+    import shutil
+    import subprocess
+
+    exe = shutil.which("claude")
+    if not exe:
+        return WARN, "Claude Code command not found (voice-launched tasks won't work)"
+    r = subprocess.run([exe, "auth", "status"], capture_output=True, text=True, timeout=30,
+                       creationflags=subprocess.CREATE_NO_WINDOW)
+    try:
+        logged_in = json.loads(r.stdout).get("loggedIn")
+    except ValueError:
+        logged_in = False
+    if not logged_in:
+        return WARN, "Claude Code isn't signed in on this PC (run: claude auth login), so voice tasks can't run"
+    return OK, "signed in; voice tasks " + ("on" if settings.claude_tasks else "off")
+
+
 def _email():
     from .email_tools import _backend
 
@@ -179,7 +197,7 @@ CHECKS = [
     ("Config files", _files), ("Brain: Gemini", _gemini), ("Brain backup + hearing: Groq", _groq),
     ("Voice", _voice), ("Speech recognition", _whisper), ("Wake word", _wake), ("Microphone & speaker", _audio),
     ("Web search & weather", _web), ("Google Calendar", _google), ("Google Classroom", _classroom), ("Email", _email),
-    ("Claude Code hooks", _claude), ("Windows startup", _startup),
+    ("Claude Code hooks", _claude), ("Claude Code CLI", _claude_cli), ("Windows startup", _startup),
 ]
 
 

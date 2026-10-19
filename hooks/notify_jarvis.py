@@ -67,6 +67,8 @@ def post(port: int, payload: dict):
 
 
 def main():
+    if os.environ.get("FRIDAY_TASK"):
+        return  # a task the assistant started herself: she announces it
     port = jarvis_port()
     if port is None:
         return

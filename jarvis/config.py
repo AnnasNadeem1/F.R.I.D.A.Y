@@ -52,6 +52,12 @@ class Settings:
     phone_port: int = int(_env("PHONE_PORT", "8770"))
     classroom_reminders: bool = _env("CLASSROOM_REMINDERS", "1") == "1"
     classroom_remind_hours: str = _env("CLASSROOM_REMIND_HOURS", "24,2")  # hours before the due time
+    briefing_time: str = _env("BRIEFING_TIME")  # e.g. 07:30; empty = only when asked
+    briefing_location: str = _env("BRIEFING_LOCATION", "Islamabad")  # for the weather
+    claude_tasks: bool = _env("CLAUDE_TASKS", "1") == "1"  # voice-launched Claude Code tasks
+    claude_projects: str = _env("CLAUDE_PROJECTS", r"jarvis=C:\jarvis;fedcard=C:\fedcard")  # name=folder;...
+    claude_task_model: str = _env("CLAUDE_TASK_MODEL", "sonnet")  # sonnet | haiku | opus
+    claude_task_minutes: int = int(_env("CLAUDE_TASK_MINUTES", "10"))  # a task is stopped after this long
     claude_bridge_port: int = int(_env("CLAUDE_BRIDGE_PORT", "8765"))
     claude_announce_min_seconds: float = float(_env("CLAUDE_ANNOUNCE_MIN_SECONDS", "30"))  # skip quick replies
     # Ignore the wake word mid-sentence ("see you on Friday"); you address the assistant after a pause.

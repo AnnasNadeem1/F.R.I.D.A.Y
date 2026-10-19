@@ -80,10 +80,13 @@ TOOL_ACTIVITY = {
     "email_read": "Reading an email", "email_create_draft": "Drafting an email", "email_send_draft": "Sending",
     "set_reminder": "Setting a reminder", "list_reminders": "Checking reminders", "remember": "Remembering that",
     "claude_code_status": "Checking on Claude", "classroom_assignments": "Checking Google Classroom",
-    "classroom_courses": "Checking Google Classroom",
+    "classroom_courses": "Checking Google Classroom", "daily_briefing": "Putting your briefing together", "claude_task_prepare": "Preparing a Claude task",
+    "claude_task_start": "Starting Claude", "claude_task_status": "Checking on Claude's task",
+    "claude_task_cancel": "Stopping Claude",
 }
 SLOW_TOOLS = {"web_search", "news_search", "read_webpage", "get_weather", "calendar_list_events",
-              "email_list_unread", "email_read", "classroom_assignments", "classroom_courses"}
+              "email_list_unread", "email_read", "classroom_assignments", "classroom_courses",
+              "daily_briefing"}
 FILLERS = ("On it.", "One sec.", "Let me check.", "Checking now.", "Give me a second.")
 
 
@@ -214,8 +217,13 @@ class Engine:
             announce("claude", text)
 
         ReminderScheduler(reminder)
+        from . import claude_tasks
+        claude_tasks.MANAGER.on_done = claude
+        claude_tasks.MANAGER.on_activity = self.l.activity
         from .classroom import ClassroomWatcher
         ClassroomWatcher()
+        from .briefing import BriefingScheduler
+        BriefingScheduler(self.run_briefing)
         Bridge(claude, settings.claude_bridge_port, settings.claude_announce_min_seconds)
         if settings.phone_access:
             from .remote.server import PhoneServer
@@ -223,6 +231,23 @@ class Engine:
                 self.phone_server = PhoneServer(self, settings.phone_port)
             except OSError as e:
                 log.warning("phone server couldn't start on port %s: %s", settings.phone_port, e)
+
+    def run_briefing(self) -> bool:
+        """Speak the daily briefing now (scheduled, or the BRIEF ME NOW button). Waits its turn
+        if a conversation is in progress. Also pushed to the phone as a notification."""
+        if not self._ready.is_set():
+            return False
+        from .briefing import PROMPT
+
+        self.l.notice("briefing", "Daily briefing")
+        self.speaker.chime(rising=True, wait=False)
+        self._reply(PROMPT, speak=True)
+        self._set_state("off" if not self._listening.is_set() else self._voice_state, voice=False)
+        history = self.assistant.history
+        if settings.phone_access and history and history[-1]["role"] == "assistant" and history[-1]["content"]:
+            from .remote import push
+            push.notify("Daily briefing", history[-1]["content"][:240], tag="briefing")
+        return True
 
     # ------------------------------------------------------------ phone access (jarvis.remote)
 

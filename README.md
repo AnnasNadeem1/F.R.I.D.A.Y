@@ -67,10 +67,32 @@ Most of these can be changed in the app (Settings → Save and restart). Secrets
 | `STT_ENGINE` | `groq` | `groq` gives an accurate final transcript but sends voice clips to Groq. `local` keeps everything on this PC. |
 | `GEMINI_MODEL` | `gemini-flash-lite-latest` | Full Flash is smarter but only allows ~5 requests/min free |
 | `LLM_PROVIDER` | `gemini` | Which brain to try first |
+| `BRIEFING_TIME`, `BRIEFING_LOCATION` | (off), `Islamabad` | Automatic daily briefing time (24-hour HH:MM) and weather city |
+| `CLAUDE_TASKS`, `CLAUDE_PROJECTS`, `CLAUDE_TASK_MODEL`, `CLAUDE_TASK_MINUTES` | `1`, jarvis + fedcard, `sonnet`, `10` | Voice-launched Claude tasks |
 
 **Misheard names?** Add them to `vocabulary.txt`, which covers places, people and jargon.
 
 **Audio with Bluetooth earbuds:** keep Windows' input on the laptop **Microphone Array**, not "Headset (your earbuds)". Using the earbud mic forces Bluetooth into call mode, which makes everything sound worse.
+
+## Daily briefing
+
+Say "Friday, good morning" (or "brief me", "what does my day look like?") and she gives you a short rundown: weather, today's calendar, assignments (overdue and due soon), recent unread email and today's reminders. It also works by typing and from the phone. For an automatic one, set a time under **Settings → Daily briefing** (or `BRIEFING_TIME=07:30`). If the PC was off at that time, you get it once when she starts, up until noon. **BRIEF ME NOW** in Settings tests it.
+
+## Claude Code tasks by voice
+
+"Friday, ask Claude to find out why the tests fail in fedcard." She prepares the task, **reads the plan back** (the project, what Claude will do, and whether it may change files), and starts it only after a clear spoken yes. She tells you when it's done, and you can ask "how's Claude getting on?" or say "cancel the Claude task".
+
+- **Read-only by default:** Claude can read and search files and check git history. Anything else is refused. Say you want files changed ("...and fix it") and she asks again, naming that, before it may edit files and run tests.
+- **Allowed projects only:** `CLAUDE_PROJECTS=jarvis=C:\jarvis;fedcard=C:\fedcard`.
+- **One task at a time,** with a time limit (`CLAUDE_TASK_MINUTES`, default 10) and a cancel.
+- **Your Pro login only:** any `ANTHROPIC_API_KEY` is removed from its environment, so it can't bill an API account.
+- **Fresh session each time:** Claude doesn't remember your other conversations, so describe the job fully.
+- **It uses your Claude plan's usage**, the same pool as your own sessions. Coding tasks use far more than chat. Pick a lighter model in Settings (`CLAUDE_TASK_MODEL=haiku`), or switch the feature off (`CLAUDE_TASKS=0`).
+- **One-time sign-in:** the command-line Claude Code needs its own login: run `claude auth login` once. Diagnostics shows whether it's signed in.
+
+## Backups
+
+The project is a git repository. `.env`, the Google files, `models/` and `data/` are ignored, so the code can be pushed to a private GitHub repo without leaking secrets: `git remote add origin <url>` then `git push -u origin main`.
 
 ## Connect Yahoo Mail
 
@@ -152,6 +174,8 @@ jarvis/
   reminders.py     reminders and the background scheduler
   google_tools.py  Google Calendar, plus the Gmail backend
   classroom.py     Google Classroom assignments and due-date reminders
+  briefing.py      the daily briefing tool and its schedule
+  claude_tasks.py  voice-launched Claude Code tasks (confirmation, modes, limits)
   email_tools.py   email tools (Yahoo or Gmail) and the send safeguard
   claude_bridge.py Claude Code event listener and status tool
   remote/          phone app: server, web app, Tailscale, push notifications

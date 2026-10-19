@@ -827,6 +827,34 @@ class MainWindow(QMainWindow):
         f.addRow(_label("Remind this many hours before (e.g. 24,2)"), self.ed_classroom_hours)
         self._update_classroom_state()
 
+        f = section("DAILY BRIEFING")
+        self.ed_brief_time = QLineEdit(settings.briefing_time)
+        self.ed_brief_time.setPlaceholderText("07:30  (empty = only when I ask)")
+        self.ed_brief_time.setMaximumWidth(220)
+        f.addRow(_label("Give it automatically at (24-hour HH:MM)"), self.ed_brief_time)
+        self.ed_brief_place = QLineEdit(settings.briefing_location)
+        self.ed_brief_place.setMaximumWidth(220)
+        f.addRow(_label("Weather for"), self.ed_brief_place)
+        brief_now = QPushButton("BRIEF ME NOW")
+        brief_now.clicked.connect(lambda: threading.Thread(target=self.engine.run_briefing, daemon=True).start())
+        f.addRow(brief_now)
+
+        f = section("CLAUDE TASKS BY VOICE")
+        self.chk_ctasks = QCheckBox('Let me start Claude Code tasks by voice ("ask Claude to ...")')
+        self.chk_ctasks.setChecked(settings.claude_tasks)
+        f.addRow(self.chk_ctasks)
+        self.cb_cmodel = QComboBox()
+        for label, m in (("Sonnet (balanced)", "sonnet"), ("Haiku (cheapest on your usage)", "haiku"),
+                         ("Opus (strongest, uses the most)", "opus")):
+            self.cb_cmodel.addItem(label, m)
+        self.cb_cmodel.setCurrentIndex(max(0, self.cb_cmodel.findData(settings.claude_task_model)))
+        f.addRow(_label("Model for these tasks"), self.cb_cmodel)
+        self.sp_cminutes = QSpinBox(minimum=1, maximum=60, value=settings.claude_task_minutes, suffix=" min")
+        self.sp_cminutes.setMaximumWidth(140)
+        f.addRow(_label("Stop a task after"), self.sp_cminutes)
+        f.addRow(QLabel("Allowed projects: " + (", ".join(__import__("jarvis.claude_tasks", fromlist=["projects"]).projects())
+                                               or "none") + "  (edit CLAUDE_PROJECTS in .env)", objectName="hint"))
+
         f = section("CLAUDE CODE")
         self.sp_claude = QSpinBox(minimum=0, maximum=600, value=int(settings.claude_announce_min_seconds), suffix=" s")
         f.addRow(_label("Announce tasks that took longer than"), self.sp_claude)
@@ -903,7 +931,7 @@ class MainWindow(QMainWindow):
             elif m["role"] == "notice" and m["extra"] == "interrupted":
                 out.append(f'<p style="margin:6px 0 0 0; {mono} color:#5c626c;">— INTERRUPTED —</p>')
             elif m["role"] == "notice":
-                icon = {"reminder": "⏰", "classroom": "📚"}.get(m["extra"], "⚡")
+                icon = {"reminder": "⏰", "classroom": "📚", "briefing": "☀"}.get(m["extra"], "⚡")
                 out.append(f'<p style="margin:16px 0 0 0; color:{AMBER};">{icon} {t}</p>')
             else:
                 out.append(f'<p style="margin:16px 0 0 0; color:{RED};">⚠ {t}</p>')
@@ -1105,6 +1133,11 @@ class MainWindow(QMainWindow):
             "SPEAK_TYPED": "1" if self.chk_speak_typed.isChecked() else "0",
             "BARGE_IN": "1" if self.chk_barge.isChecked() else "0",
             "WAKE_REQUIRE_PAUSE": "1" if self.chk_pause.isChecked() else "0",
+            "CLAUDE_TASKS": "1" if self.chk_ctasks.isChecked() else "0",
+            "CLAUDE_TASK_MODEL": self.cb_cmodel.currentData(),
+            "CLAUDE_TASK_MINUTES": str(self.sp_cminutes.value()),
+            "BRIEFING_TIME": self.ed_brief_time.text().strip(),
+            "BRIEFING_LOCATION": self.ed_brief_place.text().strip() or "Islamabad",
             "CLASSROOM_REMINDERS": "1" if self.chk_classroom.isChecked() else "0",
             "CLASSROOM_REMIND_HOURS": ",".join(p.strip() for p in self.ed_classroom_hours.text().split(",")
                                                if p.strip().replace(".", "", 1).isdigit()) or "24,2",
