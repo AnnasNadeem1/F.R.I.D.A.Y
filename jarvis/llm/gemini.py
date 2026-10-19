@@ -16,7 +16,7 @@ class GeminiProvider:
     def __init__(self, api_key: str, model: str):
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not set in .env")
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=45_000))
         self.model = model
         self.use_thinking_config = True
 

@@ -113,17 +113,25 @@ class ElevenLabsEngine:
                 if self._prev_text and time.monotonic() - self._prev_time < 20 and "v3" not in self.model:
                     body["previous_text"] = self._prev_text[-500:]
                 r = self.session.post(self.URL.format(voice_id=self.voice_id), params={"output_format": "pcm_24000"},
-                                      json=body, timeout=15)
+                                      json=body, timeout=8)  # a slow reply is worse than the local voice
                 if r.status_code == 200 and r.content:
                     self._prev_text, self._prev_time = text, time.monotonic()
                     return np.frombuffer(r.content[: len(r.content) // 2 * 2], dtype=np.int16)
                 self.last_error = f"HTTP {r.status_code}: {r.text[:200]}"
-                # Quota, auth or voice-permission problems won't fix themselves in seconds.
-                self._rest_until = time.monotonic() + (900 if r.status_code in (401, 402, 403, 429) else 60)
+                if "quota_exceeded" in r.text:
+                    rest = 6 * 3600  # out of credits: won't change until the monthly reset, so stop asking
+                elif r.status_code in (401, 402, 403, 429):
+                    rest = 900
+                else:
+                    rest = 60
+                self._rest_until = time.monotonic() + rest
             except requests.RequestException as e:
                 self.last_error = f"{type(e).__name__}: {e}"
                 self._rest_until = time.monotonic() + 60
             log.warning("ElevenLabs failed (%s); using the local voice for now", self.last_error)
+            preload = getattr(self.fallback, "preload", None)
+            if preload:
+                preload()  # start loading the backup voice now, not when it's needed mid-sentence
         return self._fallback(text)
 
     def _fallback(self, text: str) -> np.ndarray:
@@ -149,12 +157,20 @@ class LazyEngine:
     def loaded(self) -> bool:
         return self._engine is not None
 
-    def synth(self, text: str) -> np.ndarray:
+    def _load(self):
         with self._lock:
             if self._engine is None:
                 log.info("loading backup voice %s", self.label)
                 self._engine = self._factory()
                 self.sample_rate = getattr(self._engine, "sample_rate", self.sample_rate)
+
+    def preload(self):
+        """Load in the background (harmless if already loaded or loading)."""
+        if self._engine is None:
+            threading.Thread(target=self._load, daemon=True, name="backup-voice").start()
+
+    def synth(self, text: str) -> np.ndarray:
+        self._load()
         if not hasattr(self._engine, "synth"):  # fell back to the Windows voice: can't render audio
             return np.zeros(0, np.int16)
         return self._engine.synth(text)

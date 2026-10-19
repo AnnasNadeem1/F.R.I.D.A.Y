@@ -32,6 +32,7 @@ class Settings:
     gemini_model: str = _env("GEMINI_MODEL", "gemini-flash-lite-latest")  # higher free-tier rate limit than full Flash
     groq_api_key: str = _env("GROQ_API_KEY")
     groq_model: str = _env("GROQ_MODEL", "openai/gpt-oss-120b")
+    groq_model_backup: str = _env("GROQ_MODEL_BACKUP", "openai/gpt-oss-20b")  # separate rate limit; "" = off
     # groq = final transcript by Groq's Whisper large-v3-turbo (much better with accents;
     # sends your voice clips to Groq). local = everything stays on this PC.
     stt_engine: str = _env("STT_ENGINE", "groq").lower()

@@ -1,6 +1,10 @@
 """Conversation loop: send history to the LLM, stream text out, run any tool
 calls it makes, and repeat until it gives a plain answer."""
 import logging
+import queue
+import re
+import threading
+import time
 from datetime import datetime
 from typing import Iterator
 
@@ -13,6 +17,8 @@ from .tools import CONTEXT, REGISTRY, run_tool
 log = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
+HEDGE_SECONDS = 2.5  # ask the backup provider too if the preferred one hasn't started answering by then
+DEMOTE_SECONDS = 600  # how long a provider that lost a race is tried last
 MAX_HISTORY = 40
 
 
@@ -72,11 +78,46 @@ def system_prompt() -> str:
     )
 
 
+# Every request carries the definitions of the tools offered to the model: ~1,900 tokens for all of
+# them. The free Groq tier allows few tokens per minute, so tools for email, calendar, school and
+# Claude are only offered when the conversation is about them (or was just using them).
+CORE_TOOLS = {"remember", "forget", "set_reminder", "list_reminders", "cancel_reminder",
+              "web_search", "news_search", "read_webpage", "get_weather"}
+TOOL_GROUPS = [
+    (re.compile(r"e-?mail|inbox|unread|\bmails?\b|draft|repl(y|ies)|\bsend\b|message|write to|gmail|yahoo", re.I),
+     {"email_list_unread", "email_read", "email_create_draft", "email_send_draft"}),
+    (re.compile(r"calendar|schedule|event|meeting|appointment|agenda|what.s on|free (on|at)|busy|book|\badd\b|"
+                r"tomorrow|tonight|next week|\b(mon|tues?|wednes|thurs?|fri|satur|sun)day\b|\d{1,2}(:\d\d)?\s?(am|pm)\b",
+                re.I),
+     {"calendar_list_events", "calendar_create_event"}),
+    (re.compile(r"homework|assignment|classroom|\bclass(es)?\b|course|\bdue\b|submit|turn(ed)? in|\blabs?\b|quiz|"
+                r"deadline|overdue|exam|mid-?term|teacher|school|university|semester", re.I),
+     {"classroom_assignments", "classroom_courses"}),
+    (re.compile(r"claude|\bcode\b|coding|\btask\b|\brepo(sitory)?\b|project|folder|\bbugs?\b|\btests?\b|fedcard", re.I),
+     {"claude_task_prepare", "claude_task_start", "claude_task_status", "claude_task_cancel", "claude_code_status"}),
+    (re.compile(r"brief|good (morning|afternoon|evening)|my day|what.s up|what.s happening|today", re.I),
+     {"daily_briefing", "calendar_list_events", "classroom_assignments"}),
+]
+
+
+def tools_for(history: list[dict]) -> list:
+    """Core tools, plus the groups the recent conversation touches (what you said in the last
+    few messages, or tools used in the last few turns, so confirmations like 'yes, send it' work)."""
+    recent_user = " ".join(m["content"] for m in history[-8:] if m["role"] == "user")
+    used = {c.name for m in history[-10:] for c in (m.get("tool_calls") or [])}
+    names = set(CORE_TOOLS)
+    for pattern, group in TOOL_GROUPS:
+        if pattern.search(recent_user) or group & used:
+            names |= group
+    return [t for n, t in REGISTRY.items() if n in names]
+
+
 class Assistant:
     def __init__(self, providers: list[Provider]):
         if not providers:
             raise RuntimeError("No LLM provider configured. Add GEMINI_API_KEY or GROQ_API_KEY to .env")
         self.providers = providers
+        self._demoted: dict[str, float] = {}  # provider name -> time until which it's tried last
         self.history: list[dict] = []
         self.on_tool = None  # optional callback(tool_name) when a tool starts, e.g. to say "one sec"
         self._partial: list[str] = []  # text streamed so far in the current round
@@ -90,24 +131,91 @@ class Assistant:
             h.pop(0)
         self.history = h
 
+    def _ordered(self) -> list[Provider]:
+        """Providers in preference order; one that recently lost a race is tried last for a while."""
+        now = time.time()
+        return sorted(self.providers, key=lambda p: self._demoted.get(p.name, 0) > now)
+
     def _stream_once(self, system: str) -> Iterator[str | ToolCall | Done]:
-        """Try providers in order. Fall back only if nothing has been yielded yet,
-        so the user never hears half an answer from one model and half from another."""
-        tools = list(REGISTRY.values())
-        last_err = None
-        for p in self.providers:
-            started = False
+        """Stream one model response, using whichever provider answers first.
+
+        The preferred provider starts alone. If it fails, or hasn't produced anything within
+        HEDGE_SECONDS (free tiers regularly stall for 10-20 s), the next one is started alongside
+        it and the first to produce output wins; the other is ignored. Nothing has any side effect
+        until a stream finishes (tools run afterwards), so racing is safe. A provider that loses
+        a race is tried last for the next 10 minutes. After a winner has produced output, its
+        stream is followed to the end, so one reply never mixes two models."""
+        history = list(self.history)  # a snapshot: losing threads may still be reading it
+        tools = tools_for(history)  # a snapshot: losing threads may still be reading it
+        order = self._ordered()
+        events: queue.Queue = queue.Queue()
+        cancelled = threading.Event()
+
+        def run(idx: int, p: Provider):
             try:
-                for ev in p.stream(system, self.history, tools):
-                    started = True
-                    yield ev
-                return
-            except Exception as e:
-                if started:
-                    raise
-                log.warning("%s failed (%s), trying next provider", p.name, e)
-                last_err = e
-        raise RuntimeError(f"All LLM providers failed: {last_err}")
+                for ev in p.stream(system, history, tools):
+                    if cancelled.is_set():
+                        return
+                    events.put((idx, "ev", ev))
+                events.put((idx, "end", None))
+            except Exception as e:  # noqa: BLE001 - reported to the main thread
+                events.put((idx, "err", e))
+
+        started = 0
+        failed: dict[int, Exception] = {}
+
+        def launch_next():
+            nonlocal started
+            if started < len(order):
+                threading.Thread(target=run, args=(started, order[started]), daemon=True,
+                                 name=f"llm-{order[started].name}").start()
+                started += 1
+                return True
+            return False
+
+        launch_next()
+        winner = None
+        launched_at = time.monotonic()
+        try:
+            while True:
+                waiting = winner is None and started < len(order)
+                timeout = max(0.05, HEDGE_SECONDS - (time.monotonic() - launched_at)) if waiting else 60
+                try:
+                    idx, kind, payload = events.get(timeout=timeout)
+                except queue.Empty:
+                    if waiting:  # the current provider is slow: start the next one alongside it
+                        log.info("%s is slow (> %.0fs); also asking %s", order[started - 1].name, HEDGE_SECONDS,
+                                 order[started].name)
+                        launch_next()
+                        launched_at = time.monotonic()
+                        continue
+                    raise RuntimeError("The language model didn't answer in time.")
+                if winner is not None and idx != winner:
+                    continue  # output from a provider that lost the race
+                if kind == "err":
+                    if winner is not None:
+                        raise payload  # failed mid-answer: can't switch models now
+                    failed[idx] = payload
+                    log.warning("%s failed (%s)", order[idx].name, str(payload)[:160])
+                    if len(failed) >= started and not launch_next():
+                        raise RuntimeError(f"All LLM providers failed: {payload}")
+                    launched_at = time.monotonic()
+                    continue
+                if kind == "end":
+                    if winner is None:
+                        failed[idx] = RuntimeError("empty response")
+                        if len(failed) >= started and not launch_next():
+                            raise RuntimeError("The language model gave an empty response.")
+                        continue
+                    return
+                if winner is None:
+                    winner = idx
+                    if idx > 0 and 0 not in failed:  # the preferred provider was beaten, not broken
+                        self._demoted[order[0].name] = time.time() + DEMOTE_SECONDS
+                        log.info("%s answered first; preferring it for a while", order[idx].name)
+                yield payload
+        finally:
+            cancelled.set()
 
     def respond(self, user_text: str) -> Iterator[str]:
         snapshot = list(self.history)

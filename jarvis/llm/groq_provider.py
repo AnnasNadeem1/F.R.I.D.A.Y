@@ -13,7 +13,9 @@ class GroqProvider:
     def __init__(self, api_key: str, model: str):
         if not api_key:
             raise ValueError("GROQ_API_KEY is not set in .env")
-        self.client = Groq(api_key=api_key)
+        # No built-in retries: on a rate limit the SDK silently waits 9-16 s; fail fast and let the
+        # assistant switch providers instead.
+        self.client = Groq(api_key=api_key, max_retries=0, timeout=30.0)
         self.model = model
 
     def _messages(self, system: str, history: list[dict]) -> list[dict]:

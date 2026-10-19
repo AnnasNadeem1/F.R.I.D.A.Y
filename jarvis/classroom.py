@@ -92,7 +92,7 @@ def _api():
 def _pages(request_fn, key: str) -> list:
     out, token = [], None
     while True:
-        resp = request_fn(token).execute()
+        resp = request_fn(token).execute(num_retries=4)  # retries dropped connections and 5xx/429
         out += resp.get(key, [])
         token = resp.get("nextPageToken")
         if not token:
@@ -159,7 +159,7 @@ def _fetch_work() -> list[dict]:
                                                     pageSize=50), "courses")
     items = []
     # All classes at once instead of one after another (18 classes: ~21 s -> a few seconds).
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:  # gentler on Google than 8 at once
         results = [r for r in pool.map(_course_work, courses) if r]
     for c, works, subs in results:
         state = {s["courseWorkId"]: s for s in subs}
