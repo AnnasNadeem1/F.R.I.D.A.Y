@@ -41,9 +41,16 @@ MODES = {
              "tools": ["Read", "Grep", "Glob", "Edit", "Write", *SAFE_GIT,
                        "Bash(python -m pytest:*)", "Bash(npm test:*)", "Bash(npm run test:*)"]},
 }
-SYSTEM_NOTE = ("You were started by a voice assistant, with nobody watching. Work on your own, don't ask questions, "
-               "and finish with a plain-language summary of 3 to 6 short sentences: what you found or did, and "
-               "anything the user must decide. If a tool was denied, say so instead of trying to work around it.")
+# Edit mode auto-approves common file commands inside the project (including rm), so deleting
+# is blocked explicitly. Deny rules win over allow rules. Tasks can create and change files,
+# never delete them.
+NEVER = ["Bash(rm:*)", "Bash(rmdir:*)", "Bash(del:*)", "Bash(erase:*)", "Bash(rd:*)",
+         "PowerShell(Remove-Item:*)", "PowerShell(rm:*)", "PowerShell(del:*)", "PowerShell(rmdir:*)",
+         "Bash(git push:*)", "Bash(git reset:*)", "Bash(git clean:*)", "Bash(git checkout:*)"]
+SYSTEM_NOTE = ("You were started by a voice assistant, with nobody watching. Work on your own and don't ask "
+               "questions. Your final answer must START with one plain sentence that can be read aloud as it is "
+               "(no markdown, no bullets, no file paths or symbols) giving the outcome, then, if useful, details "
+               "and anything the user must decide. If a tool was denied, say so; don't try to work around it.")
 RESULT_LIMIT = 3000
 _lock = threading.Lock()
 
@@ -115,7 +122,7 @@ class TaskManager:
         mode = MODES[task.mode]
         cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
                "--model", settings.claude_task_model, "--permission-mode", mode["permission"],
-               "--append-system-prompt", SYSTEM_NOTE, "--allowedTools", *mode["tools"]]
+               "--append-system-prompt", SYSTEM_NOTE, "--disallowedTools", *NEVER, "--allowedTools", *mode["tools"]]
         task.proc = subprocess.Popen(cmd, cwd=str(task.path), env=_clean_env(), stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
                                      errors="replace", creationflags=subprocess.CREATE_NO_WINDOW)
@@ -176,7 +183,10 @@ class TaskManager:
         minutes = round((task.ended - task.started) / 60)
         took = "less than a minute" if minutes < 1 else ("about a minute" if minutes == 1 else f"about {minutes} minutes")
         if task.state == "done":
-            text = f"Claude finished the task in {task.project}, after {took}. " + _first_sentence(task.result, 220)
+            # Spoken aloud: drop list bullets and dashes, and read paths without their backslashes.
+            spoken = re.sub(r"^[\s\-*•]+", "", task.result)
+            spoken = spoken.replace("\\", " ").replace("—", ", ").replace(" - ", ", ")
+            text = f"Claude finished the task in {task.project}, after {took}. " + _first_sentence(spoken, 220)
         elif task.state == "timed out":
             text = f"Claude ran out of time on the task in {task.project} and I stopped it."
         elif task.state == "cancelled":
@@ -224,7 +234,7 @@ def claude_task_prepare(project: str, task: str, can_edit: bool = False):
     MANAGER.tasks[t.id] = t
     for old in [k for k, v in MANAGER.tasks.items() if v.state != "running" and time.time() - (v.ended or v.started or 0) > 86400 and v.state != "pending"]:
         del MANAGER.tasks[old]
-    access = ("MAY CHANGE FILES in the project and run its tests" if can_edit
+    access = ("MAY CREATE AND CHANGE FILES in the project and run its tests (it can't delete files)" if can_edit
               else "READ-ONLY: it can read and search files and check git history, but can't change anything or run other commands")
     return {"task_id": t.id, "project": name, "access": access, "model": settings.claude_task_model,
             "time_limit_minutes": settings.claude_task_minutes,

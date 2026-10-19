@@ -82,7 +82,7 @@ Say "Friday, good morning" (or "brief me", "what does my day look like?") and sh
 
 "Friday, ask Claude to find out why the tests fail in fedcard." She prepares the task, **reads the plan back** (the project, what Claude will do, and whether it may change files), and starts it only after a clear spoken yes. She tells you when it's done, and you can ask "how's Claude getting on?" or say "cancel the Claude task".
 
-- **Read-only by default:** Claude can read and search files and check git history. Anything else is refused. Say you want files changed ("...and fix it") and she asks again, naming that, before it may edit files and run tests.
+- **Read-only by default:** Claude can read and search files and check git history. Anything else is refused. Say you want files changed ("...and fix it") and she asks again, naming that, before it may create and edit files and run tests. Even then it **cannot delete files** or run `git push`, `reset`, `clean` or `checkout`.
 - **Allowed projects only:** `CLAUDE_PROJECTS=jarvis=C:\jarvis;fedcard=C:\fedcard`.
 - **One task at a time,** with a time limit (`CLAUDE_TASK_MINUTES`, default 10) and a cancel.
 - **Your Pro login only:** any `ANTHROPIC_API_KEY` is removed from its environment, so it can't bill an API account.
