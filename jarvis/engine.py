@@ -48,10 +48,13 @@ def is_sleep_phrase(text: str) -> bool:
 
 def make_speaker():
     from .config import ROOT
+    from .speech import tts
     from .speech.tts import Speaker
 
+    tts.INTERNAL_PAUSE_CAP = settings.kokoro_pause_cap
     return Speaker(settings.tts_engine, settings.piper_voice, settings.models_dir, settings.tts_speed,
                    kokoro_voice=settings.kokoro_voice, pronunciations=ROOT / "pronunciations.txt",
+                   kokoro_model=settings.kokoro_model,
                    elevenlabs={"api_key": settings.elevenlabs_api_key, "voice_id": settings.elevenlabs_voice_id,
                                "model": settings.elevenlabs_model})
 
@@ -273,7 +276,11 @@ class Engine:
         text = clean(sentence)
         if self.speaker.pronunciations:
             text = self.speaker.pronunciations.apply(text)
-        return (engine.synth(text), engine.sample_rate) if text else (None, 0)
+        if not text:
+            return None, 0
+        from .speech.tts import finish_clip
+
+        return finish_clip(engine.synth(text), engine.sample_rate, text), engine.sample_rate
 
     def phone_turn(self, text: str, on_delta, on_sentence, on_activity):
         """One conversational turn from the phone: same memory and history as voice and typing,

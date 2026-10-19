@@ -43,7 +43,9 @@ class Settings:
     elevenlabs_voice_id: str = _env("ELEVENLABS_VOICE_ID")
     elevenlabs_model: str = _env("ELEVENLABS_MODEL", "eleven_flash_v2_5")  # fastest, cheapest in credits
     piper_voice: str = _env("PIPER_VOICE", "en_GB-alan-medium")
-    tts_speed: float = float(_env("TTS_SPEED", "1.1"))  # higher = slower, clearer speech
+    tts_speed: float = float(_env("TTS_SPEED", "1.0"))  # local voices: higher = slower (1.0 = natural)
+    kokoro_pause_cap: float = float(_env("KOKORO_PAUSE_CAP", "0.16"))  # longest pause kept at a comma (s); 0 = off
+    kokoro_model: str = _env("KOKORO_MODEL", "int8").lower()  # int8 (compressed, faster) | fp32 (full quality)
     email_provider: str = _env("EMAIL_PROVIDER", "auto").lower()  # auto = Yahoo if configured, else Gmail
     yahoo_email: str = _env("YAHOO_EMAIL")
     yahoo_app_password: str = _env("YAHOO_APP_PASSWORD").replace(" ", "")  # Yahoo shows it in groups of 4

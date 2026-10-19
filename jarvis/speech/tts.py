@@ -14,10 +14,68 @@ import sounddevice as sd
 
 log = logging.getLogger(__name__)
 
-_SENTENCE_END = re.compile(r"(?<=[.!?;:])\s+|\n+")
+# Split only at real sentence ends. Cutting at commas, colons or semicolons makes separate clips, each with
+# its own falling "end of sentence" tone and pause, which sounds like odd stops mid-sentence.
+_SENTENCE_END = re.compile(r"(?<!\bMr\.)(?<!\bMrs\.)(?<!\bMs\.)(?<!\bDr\.)(?<!\bSt\.)(?<!\bvs\.)(?<!\be\.g\.)(?<!\bi\.e\.)"
+                           r"(?<=[.!?])\s+|\n+")
 _MARKDOWN = re.compile(r"[*_#`>\[\]]")
-SENTENCE_GAP = 0.18  # seconds of silence between sentences, so they don't run together
-FIRST_SPLIT_CHARS = 60  # opening sentences longer than this are split at a comma for a quicker start
+# Pause inserted after a clip, by the punctuation that ended it (seconds). Each clip's own leading and
+# trailing silence is trimmed first, so these are the pauses you actually hear.
+PAUSE_AFTER = {".": 0.26, "!": 0.30, "?": 0.30, ",": 0.12, ";": 0.18, ":": 0.18}
+DEFAULT_PAUSE = 0.20
+FIRST_SPLIT_CHARS = 110  # an opening sentence longer than this is split at a comma, to start speaking sooner
+
+
+def trim_silence(audio: np.ndarray, rate: int, margin_ms: int = 25) -> np.ndarray:
+    """Cut silence from both ends of a clip (voices pad each clip with 100-200 ms)."""
+    if audio.size == 0:
+        return audio
+    loud = np.nonzero(np.abs(audio.astype(np.int32)) > max(int(np.abs(audio).max()) * 0.02, 60))[0]
+    if loud.size == 0:
+        return audio
+    margin = int(rate * margin_ms / 1000)
+    return audio[max(0, loud[0] - margin): min(len(audio), loud[-1] + margin)]
+
+
+INTERNAL_PAUSE_CAP = 0.16  # longest silence kept inside a clip (seconds); set from KOKORO_PAUSE_CAP, 0 = off
+
+
+def shorten_pauses(audio: np.ndarray, rate: int, cap: float) -> np.ndarray:
+    """Shorten silences inside a clip to `cap` seconds. Kokoro's network generates 200-450 ms of
+    silence at every comma, which sounds like hesitation; a natural comma pause is about 150 ms.
+    The cut is taken from the middle of the silence, so the words themselves aren't touched."""
+    if cap <= 0 or audio.size == 0:
+        return audio
+    frame = max(1, int(rate * 0.01))  # 10 ms
+    n = len(audio) // frame
+    if n < 8:
+        return audio
+    rms = np.sqrt((audio[: n * frame].astype(np.float32).reshape(n, frame) ** 2).mean(axis=1))
+    quiet = rms < max(float(rms.max()) * 0.03, 1.0)
+    keep = np.ones(len(audio), bool)
+    cap_frames = int(cap * 100)
+    i = 0
+    while i < n:
+        if quiet[i]:
+            j = i
+            while j < n and quiet[j]:
+                j += 1
+            run = j - i
+            if run > cap_frames + 3 and i > 0 and j < n:  # leave the very start and end alone
+                extra = run - cap_frames
+                cut_from = (i + (run - extra) // 2) * frame
+                keep[cut_from: cut_from + extra * frame] = False
+            i = j
+        else:
+            i += 1
+    return audio[keep]
+
+
+def finish_clip(audio: np.ndarray, rate: int, text: str) -> np.ndarray:
+    """Trim a synthesised clip and append the pause its closing punctuation calls for."""
+    ending = text.rstrip(" \"')]\u201d\u2019")[-1:]
+    pause = np.zeros(int(rate * PAUSE_AFTER.get(ending, DEFAULT_PAUSE)), np.int16)
+    return np.concatenate([trim_silence(audio, rate).astype(np.int16), pause])
 
 
 def clean(text: str) -> str:
@@ -50,11 +108,12 @@ class KokoroEngine:
     """Kokoro (82M-parameter neural TTS): far more natural than Piper, runs on the CPU at
     roughly 1.8x real time. Voices: bm_george, bm_lewis, bm_daniel, bm_fable (British male)."""
 
-    def __init__(self, voice: str, models_dir: Path, length_scale: float = 1.0):
+    def __init__(self, voice: str, models_dir: Path, length_scale: float = 1.0, variant: str = "int8"):
         from kokoro_onnx import Kokoro
 
         d = models_dir / "kokoro"
-        model, voices = d / "kokoro-v1.0.int8.onnx", d / "voices-v1.0.bin"
+        # int8 is the compressed model (smaller, faster); "fp32" is full quality, ~0.3 s slower per sentence.
+        model, voices = d / ("kokoro-v1.0.onnx" if variant == "fp32" else "kokoro-v1.0.int8.onnx"), d / "voices-v1.0.bin"
         if not model.exists() or not voices.exists():
             raise FileNotFoundError(f"Kokoro model files not found in {d}. See README.md, 'Voice'.")
         import onnxruntime as ort
@@ -72,7 +131,8 @@ class KokoroEngine:
 
     def synth(self, text: str) -> np.ndarray:
         audio, _ = self.kokoro.create(text, voice=self.voice, speed=self.speed, lang=self.lang)
-        return (np.clip(audio, -1, 1) * 32767).astype(np.int16)
+        audio = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
+        return shorten_pauses(audio, self.sample_rate, INTERNAL_PAUSE_CAP)
 
 
 class ElevenLabsEngine:
@@ -233,7 +293,8 @@ class SapiEngine:
 
 class Speaker:
     def __init__(self, engine_name: str, voice: str, models_dir: Path, length_scale: float = 1.1,
-                 kokoro_voice: str = "bm_george", pronunciations: Path | None = None, elevenlabs: dict | None = None):
+                 kokoro_voice: str = "bm_george", pronunciations: Path | None = None, elevenlabs: dict | None = None,
+                 kokoro_model: str = "int8"):
         """engine_name: elevenlabs | kokoro | piper | sapi. Local voices fall back kokoro -> piper ->
         Windows voice. ElevenLabs wraps the best local voice, used whenever ElevenLabs fails."""
         self.engine = None
@@ -241,7 +302,8 @@ class Speaker:
         if engine_name == "elevenlabs":
             # The backup voice is only loaded the first time ElevenLabs actually fails, so the
             # ~350 MB Kokoro model isn't held in memory on days ElevenLabs works fine.
-            local = LazyEngine(lambda: Speaker._local_engine("kokoro", voice, models_dir, length_scale, kokoro_voice),
+            local = LazyEngine(lambda: Speaker._local_engine("kokoro", voice, models_dir, length_scale, kokoro_voice,
+                                                             kokoro_model),
                                label=f"Kokoro {kokoro_voice[3:].title()}", sample_rate=24000)
             try:
                 self.engine = ElevenLabsEngine(fallback=local, **(elevenlabs or {}))
@@ -249,15 +311,15 @@ class Speaker:
                 log.warning("ElevenLabs unavailable (%s); using the local voice.", e)
                 self.engine = local
         else:
-            self.engine = Speaker._local_engine(engine_name, voice, models_dir, length_scale, kokoro_voice)
+            self.engine = Speaker._local_engine(engine_name, voice, models_dir, length_scale, kokoro_voice, kokoro_model)
         self._start_threads()
 
     @staticmethod
-    def _local_engine(engine_name, voice, models_dir, length_scale, kokoro_voice):
+    def _local_engine(engine_name, voice, models_dir, length_scale, kokoro_voice, kokoro_model="int8"):
         engine = None
         if engine_name == "kokoro":
             try:
-                engine = KokoroEngine(kokoro_voice, models_dir, length_scale)
+                engine = KokoroEngine(kokoro_voice, models_dir, length_scale, kokoro_model)
             except Exception as e:
                 log.warning("Kokoro unavailable (%s); falling back to Piper.", e)
                 engine_name = "piper"
@@ -305,7 +367,7 @@ class Speaker:
             try:
                 if not self._cancel.is_set():
                     if hasattr(self.engine, "synth"):
-                        audio = self.engine.synth(text)
+                        audio = finish_clip(self.engine.synth(text), self.engine.sample_rate, text)
                         if not self._cancel.is_set():
                             self._audio_q.put(audio)
                             continue  # play loop marks it done
@@ -331,7 +393,6 @@ class Speaker:
         # One stream kept open for the whole session. Opening a new stream per
         # sentence makes Bluetooth earbuds swallow the start of each sentence.
         rate = self.engine.sample_rate
-        gap = np.zeros(int(rate * SENTENCE_GAP), np.int16)
         step = int(rate * 0.05)  # write in 50 ms slices so an interruption stops almost at once
         stream = None
         while True:
@@ -340,7 +401,6 @@ class Speaker:
                 if stream is None or not stream.active:
                     stream = self._open_stream()
                 if audio.size and not self._cancel.is_set():
-                    audio = np.concatenate([audio, gap])
                     for i in range(0, len(audio), step):
                         if self._cancel.is_set():
                             stream.abort()  # discard what's already buffered too
@@ -431,8 +491,8 @@ class Speaker:
         """A long opening sentence is split at its first comma: the first words are
         synthesised (and heard) sooner, which matters with slower voices like Kokoro."""
         if first and len(sentence) > FIRST_SPLIT_CHARS:
-            cut = sentence.find(", ", 15)
-            if 0 < cut < len(sentence) - 15:
+            cut = sentence.find(", ", 30)
+            if 0 < cut < len(sentence) - 30:
                 self.say(sentence[:cut + 1])
                 self.say(sentence[cut + 2:])
                 return
