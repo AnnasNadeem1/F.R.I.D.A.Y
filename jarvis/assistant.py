@@ -85,6 +85,8 @@ def system_prompt() -> str:
         "No markdown, bullet points, emoji or URLs. Say numbers and times the way a person would, "
         "e.g. 'nine oh two p.m.', 'half past five', 'the third of March'. "
         "Use tools when they help; never invent facts about the user's calendar, email or reminders. "
+        "Never say a service (Classroom, calendar, email) isn't connected unless a tool result says so; "
+        "if in doubt, call the tool and report what it actually returned. "
         "For anything current or that you're not sure of (news, prices, sports, facts that change, people), "
         "search the web rather than guessing, then answer in a sentence or two and mention the source by name "
         "(e.g. 'according to Dawn'). Read a page only when the search snippets aren't enough. "
@@ -105,7 +107,7 @@ def system_prompt() -> str:
 # them. The free Groq tier allows few tokens per minute, so tools for email, calendar, school and
 # Claude are only offered when the conversation is about them (or was just using them).
 CORE_TOOLS = {"remember", "forget", "set_reminder", "list_reminders", "cancel_reminder",
-              "web_search", "news_search", "read_webpage", "get_weather"}
+              "web_search", "news_search", "read_webpage", "get_weather", "classroom_assignments"}
 TOOL_GROUPS = [
     (re.compile(r"e-?mail|inbox|unread|\bmails?\b|draft|repl(y|ies)|\bsend\b|message|write to|gmail|yahoo", re.I),
      {"email_list_unread", "email_read", "email_create_draft", "email_send_draft"}),
@@ -113,7 +115,7 @@ TOOL_GROUPS = [
                 r"tomorrow|tonight|next week|\b(mon|tues?|wednes|thurs?|fri|satur|sun)day\b|\d{1,2}(:\d\d)?\s?(am|pm)\b",
                 re.I),
      {"calendar_list_events", "calendar_create_event"}),
-    (re.compile(r"homework|assignment|classroom|\bclass(es)?\b|course|\bdue\b|submit|turn(ed)? in|\blabs?\b|quiz|"
+    (re.compile(r"homework|assignment|class ?room|\bclass(es)?\b|course|\bdue\b|submit|turn(ed)? in|\blabs?\b|quiz|"
                 r"deadline|overdue|exam|mid-?term|teacher|school|university|semester", re.I),
      {"classroom_assignments", "classroom_courses"}),
     (re.compile(r"claude|\bcode\b|coding|\btask\b|\brepo(sitory)?\b|project|folder|\bbugs?\b|\btests?\b|fedcard", re.I),
