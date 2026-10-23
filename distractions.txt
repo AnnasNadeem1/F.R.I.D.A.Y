@@ -1,0 +1,25 @@
+# Programs and sites Friday nags you about during a focus session (and study hours, if set).
+# One word per line, lower case. It is matched against the program name (chrome.exe) and the
+# window title (a browser shows the tab's title, e.g. "YouTube - Google Chrome").
+# Changes apply immediately. Watching a lecture on YouTube? Say "allow YouTube" when you start a session.
+
+youtube
+netflix
+prime video
+hotstar
+disney+
+twitch
+tiktok
+instagram
+facebook
+reddit
+9gag
+twitter
+steam
+epic games
+valorant
+fortnite
+minecraft
+roblox
+genshin
+league of legends

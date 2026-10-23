@@ -345,7 +345,7 @@ class Speaker:
             # ~350 MB Kokoro model isn't held in memory on days ElevenLabs works fine.
             local = LazyEngine(lambda: Speaker._local_engine("kokoro", voice, models_dir, length_scale, kokoro_voice,
                                                              kokoro_model),
-                               label=f"Kokoro {kokoro_voice[3:].title()}", sample_rate=24000)
+                               label="Kokoro " + " + ".join(v.split(":")[0].strip()[3:].title() for v in kokoro_voice.split(",")), sample_rate=24000)
             try:
                 self.engine = ElevenLabsEngine(fallback=local, **(elevenlabs or {}))
             except Exception as e:

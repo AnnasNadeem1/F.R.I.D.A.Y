@@ -24,6 +24,16 @@ CREATE TABLE IF NOT EXISTS reminders (
     created TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     fired INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS focus_sessions (
+    id INTEGER PRIMARY KEY,
+    topic TEXT NOT NULL,
+    started TEXT NOT NULL,          -- ISO 8601 local time with UTC offset
+    planned_minutes INTEGER NOT NULL,
+    minutes_done INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',   -- active | completed | stopped | lost (Friday was off)
+    distractions INTEGER NOT NULL DEFAULT 0,
+    allow TEXT NOT NULL DEFAULT ''  -- comma-separated sites/apps allowed for this session
+);
 """
 
 

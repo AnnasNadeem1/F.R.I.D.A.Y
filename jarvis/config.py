@@ -57,6 +57,9 @@ class Settings:
     classroom_remind_hours: str = _env("CLASSROOM_REMIND_HOURS", "24,2")  # hours before the due time
     briefing_time: str = _env("BRIEFING_TIME")  # e.g. 07:30; empty = only when asked
     briefing_location: str = _env("BRIEFING_LOCATION", "Islamabad")  # for the weather
+    distraction_watch: bool = _env("DISTRACTION_WATCH", "1") == "1"  # nag about distracting windows while focusing
+    study_hours: str = _env("STUDY_HOURS")  # e.g. 20:00-22:00, 14:00-16:00: also watch (and nag) in these hours
+    study_streak_minutes: int = int(_env("STUDY_STREAK_MINUTES", "25"))  # minutes in a day that count for the streak
     claude_tasks: bool = _env("CLAUDE_TASKS", "1") == "1"  # voice-launched Claude Code tasks
     claude_projects: str = _env("CLAUDE_PROJECTS", r"jarvis=C:\jarvis;fedcard=C:\fedcard")  # name=folder;...
     claude_task_model: str = _env("CLAUDE_TASK_MODEL", "sonnet")  # sonnet | haiku | opus

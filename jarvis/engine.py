@@ -85,11 +85,14 @@ TOOL_ACTIVITY = {
     "claude_code_status": "Checking on Claude", "classroom_assignments": "Checking Google Classroom",
     "classroom_courses": "Checking Google Classroom", "daily_briefing": "Putting your briefing together", "claude_task_prepare": "Preparing a Claude task",
     "claude_task_start": "Starting Claude", "claude_task_status": "Checking on Claude's task",
-    "claude_task_cancel": "Stopping Claude",
+    "claude_task_cancel": "Stopping Claude", "focus_start": "Starting your focus session", "focus_stop": "Ending your session",
+    "focus_status": "Checking your study time", "open_app": "Opening an app", "open_website": "Opening a site",
+    "media_control": "Adjusting the sound", "lock_screen": "Locking the screen", "look_at_screen": "Looking at your screen",
+    "clipboard": "Using the clipboard", "system_status": "Checking the PC",
 }
 SLOW_TOOLS = {"web_search", "news_search", "read_webpage", "get_weather", "calendar_list_events",
               "email_list_unread", "email_read", "classroom_assignments", "classroom_courses",
-              "daily_briefing"}
+              "daily_briefing", "look_at_screen"}
 FILLERS = ("On it.", "One sec.", "Let me check.", "Checking now.", "Give me a second.")
 
 
@@ -210,7 +213,7 @@ class Engine:
             self.speaker.say(text)
             if settings.phone_access:
                 from .remote import push
-                push.notify("Reminder" if kind == "reminder" else "Claude Code", text, tag=kind)
+                push.notify({"reminder": "Reminder", "focus": "Focus"}.get(kind, "Claude Code"), text, tag=kind)
 
         def reminder(text: str, late: bool):
             announce("reminder", f"While I was offline, you had a reminder: {text}." if late else f"Reminder: {text}.")
@@ -220,6 +223,9 @@ class Engine:
             announce("claude", text)
 
         ReminderScheduler(reminder)
+        from .focus import MANAGER as focus_manager
+        focus_manager.announce = announce
+        focus_manager.start_thread()
         from . import claude_tasks
         claude_tasks.MANAGER.on_done = claude
         claude_tasks.MANAGER.on_activity = self.l.activity

@@ -8,7 +8,8 @@ import time
 from datetime import datetime
 from typing import Iterator
 
-from . import briefing, claude_bridge, claude_tasks, classroom, email_tools, google_tools, reminders, web_tools  # noqa: F401  (register their tools)
+from . import (briefing, claude_bridge, claude_tasks, classroom, email_tools, focus, google_tools,  # noqa: F401
+               pc_tools, reminders, web_tools)  # register their tools
 from .config import settings
 from .llm import Done, Provider, ToolCall
 from .memory import facts_for_prompt
@@ -39,6 +40,12 @@ ABOUT_YOURSELF = (
     "read the plan back (project, what Claude will do, and whether it may change files) and ask 'Shall I start "
     "it?', and only after a clear yes call claude_task_start. Claude starts with no memory of this conversation, "
     "so write the task out in full. "
+    "You run focus sessions (focus_start): a timer that logs their study time for totals and streaks. "
+    "During a session, and during the STUDY_HOURS they've set, you watch which program or website is in "
+    "front of the screen (the window's name only; nothing is stored or sent anywhere) and tell them off when "
+    "it's something on their distractions list, like YouTube or a game; say so if asked. "
+    "You can also open apps and sites, control volume and media, lock the screen, read or set the clipboard, "
+    "look at the screen when asked, and report battery and memory. "
     "This needs you to be running; you can't notify them while you're off."
 )
 
@@ -48,7 +55,23 @@ def _persona() -> str:
         return ("You are F.R.I.D.A.Y., the user's personal AI, modelled on Tony Stark's assistant: "
                 "warm, quick and quietly witty, unflappable under pressure, loyal, and a step ahead. "
                 "You're a colleague, not a servant: no 'sir', no grovelling, no gushing; a dry aside is welcome, "
-                "a lecture is not. ")
+                "a lecture is not. Humour is occasional and never forced. Be honest and direct: don't flatter, "
+                "don't agree just to please, and if a plan has a real flaw or an overlooked risk, say so in one "
+                "sentence; otherwise don't pad. Offer a better method or a next step only when it genuinely helps. "
+                "Be clear about what is done, what you're planning, and what is waiting on their approval, and "
+                "never say you did something unless a tool confirmed it. If you don't know or can't check, say so. "
+                "You are also their accountability partner. They are studying to become an AI engineer and want to be "
+                "held to it. When they say they feel like skipping, postponing or dropping study, assignments, or "
+                "anything they've committed to, do NOT agree or comfort them: tell them to do it, in a sentence "
+                "or two, using what you know (the deadline, their goal, what's due). If they push back or make "
+                "excuses, keep pressing, firmly and with dry humour, never nagging or cruel, and offer to make it "
+                "easier (start with ten minutes, or set a reminder). Only ease off for a real reason such as illness, "
+                "exhaustion after long work, or an emergency, and even then suggest a smaller version or a new time "
+                "rather than nothing. When they say they're about to study, offer a focus session (focus_start) and "
+                "ask how many minutes if they didn't say; use focus_status to hold them to their real numbers. "
+                "Tone, not scripts: 'Here's where things stand: three done, one needs you.' / 'Certainly. I'll "
+                "take care of it.' / 'It could work. One flaw worth a look first.' / 'Understood. Let's fix it; "
+                "we can review what went wrong afterwards.' ")
     return (f"You are {settings.name}, a personal voice assistant in the spirit of Tony Stark's AI assistants: "
             "calm, capable, a little dry wit, never sycophantic. ")
 
@@ -95,6 +118,14 @@ TOOL_GROUPS = [
      {"classroom_assignments", "classroom_courses"}),
     (re.compile(r"claude|\bcode\b|coding|\btask\b|\brepo(sitory)?\b|project|folder|\bbugs?\b|\btests?\b|fedcard", re.I),
      {"claude_task_prepare", "claude_task_start", "claude_task_status", "claude_task_cancel", "claude_code_status"}),
+    (re.compile(r"focus|study|studying|studied|revis|pomodoro|concentrat|distract|streak|work(ing)? for|"
+                r"(for|next) \d+ ?(min|hour)|timer|back to (it|work)|keep me", re.I),
+     {"focus_start", "focus_stop", "focus_status"}),
+    (re.compile(r"\b(open|launch|pull up|fire up|go to|visit|website|site)\b|\.com\b|volume|louder|quieter|"
+                r"turn (it )?(up|down)|\bmute|unmute|\bpause|\bresume|\bplay\b|skip|next (song|track)|previous|"
+                r"\block\b|screen|clipboard|copied|\bcopy\b|battery|\bram\b|memory|disk|storage|uptime|my pc|computer|laptop",
+                re.I),
+     {"open_app", "open_website", "media_control", "lock_screen", "look_at_screen", "clipboard", "system_status"}),
     (re.compile(r"brief|good (morning|afternoon|evening)|my day|what.s up|what.s happening|today", re.I),
      {"daily_briefing", "calendar_list_events", "classroom_assignments"}),
 ]
