@@ -89,6 +89,9 @@ TOOL_ACTIVITY = {
     "focus_status": "Checking your study time", "open_app": "Opening an app", "open_website": "Opening a site",
     "media_control": "Adjusting the sound", "lock_screen": "Locking the screen", "look_at_screen": "Looking at your screen",
     "clipboard": "Using the clipboard", "system_status": "Checking the PC",
+    "plan_my_day": "Planning your day", "save_plan": "Saving the plan", "evening_checkin": "Reviewing your day",
+    "todo_add": "Adding to your list", "todo_list": "Checking your list", "todo_done": "Ticking that off",
+    "todo_remove": "Updating your list", "note_add": "Saving a note", "note_search": "Looking through your notes",
 }
 SLOW_TOOLS = {"web_search", "news_search", "read_webpage", "get_weather", "calendar_list_events",
               "email_list_unread", "email_read", "classroom_assignments", "classroom_courses",
@@ -233,6 +236,10 @@ class Engine:
         ClassroomWatcher()
         from .briefing import BriefingScheduler
         BriefingScheduler(self.run_briefing)
+        from .planner import CHECKIN_PROMPT, PLAN_PROMPT, DailyScheduler
+        DailyScheduler("plan", lambda: settings.plan_time, lambda: self.run_scheduled(PLAN_PROMPT, "Plan for today"), 12)
+        DailyScheduler("checkin", lambda: settings.checkin_time,
+                       lambda: self.run_scheduled(CHECKIN_PROMPT, "Evening check-in"), 23)
         Bridge(claude, settings.claude_bridge_port, settings.claude_announce_min_seconds)
         if settings.phone_access:
             from .remote.server import PhoneServer
@@ -242,20 +249,24 @@ class Engine:
                 log.warning("phone server couldn't start on port %s: %s", settings.phone_port, e)
 
     def run_briefing(self) -> bool:
-        """Speak the daily briefing now (scheduled, or the BRIEF ME NOW button). Waits its turn
+        """Speak the daily briefing now (scheduled, or the BRIEF ME NOW button)."""
+        from .briefing import PROMPT
+
+        return self.run_scheduled(PROMPT, "Daily briefing")
+
+    def run_scheduled(self, prompt: str, title: str) -> bool:
+        """Start a spoken exchange by itself (briefing, day plan, evening check-in). Waits its turn
         if a conversation is in progress. Also pushed to the phone as a notification."""
         if not self._ready.is_set():
             return False
-        from .briefing import PROMPT
-
-        self.l.notice("briefing", "Daily briefing")
+        self.l.notice("briefing", title)
         self.speaker.chime(rising=True, wait=False)
-        self._reply(PROMPT, speak=True)
+        self._reply(prompt, speak=True)
         self._set_state("off" if not self._listening.is_set() else self._voice_state, voice=False)
         history = self.assistant.history
         if settings.phone_access and history and history[-1]["role"] == "assistant" and history[-1]["content"]:
             from .remote import push
-            push.notify("Daily briefing", history[-1]["content"][:240], tag="briefing")
+            push.notify(title, history[-1]["content"][:240], tag="briefing")
         return True
 
     # ------------------------------------------------------------ phone access (jarvis.remote)

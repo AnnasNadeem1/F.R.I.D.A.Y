@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Iterator
 
 from . import (briefing, claude_bridge, claude_tasks, classroom, email_tools, focus, google_tools,  # noqa: F401
-               pc_tools, reminders, web_tools)  # register their tools
+               pc_tools, planner, reminders, tasks, web_tools)  # register their tools
 from .config import settings
 from .llm import Done, Provider, ToolCall
 from .memory import facts_for_prompt
@@ -40,6 +40,9 @@ ABOUT_YOURSELF = (
     "read the plan back (project, what Claude will do, and whether it may change files) and ask 'Shall I start "
     "it?', and only after a clear yes call claude_task_start. Claude starts with no memory of this conversation, "
     "so write the task out in full. "
+    "You keep their to-do list and notes, plan their day on request (plan_my_day, then save_plan), and run an "
+    "evening check-in on how the day went against that plan and their study goal (evening_checkin); if PLAN_TIME "
+    "or CHECKIN_TIME is set in .env, you start these yourself at that time. "
     "You run focus sessions (focus_start): a timer that logs their study time for totals and streaks. "
     "During a session, and during the STUDY_HOURS they've set, you watch which program or website is in "
     "front of the screen (the window's name only; nothing is stored or sent anywhere) and tell them off when "
@@ -128,6 +131,12 @@ TOOL_GROUPS = [
                 r"\block\b|screen|clipboard|copied|\bcopy\b|battery|\bram\b|memory|disk|storage|uptime|my pc|computer|laptop",
                 re.I),
      {"open_app", "open_website", "media_control", "lock_screen", "look_at_screen", "clipboard", "system_status"}),
+    (re.compile(r"to-?do|\bnotes?\b|\blist\b|jot|write (it |that )?down|checklist|add .{1,40} to my|tick|cross off|"
+                r"finished|\bdone\b|got done|remove .{1,30} (from|off)", re.I),
+     {"todo_add", "todo_list", "todo_done", "todo_remove", "note_add", "note_search"}),
+    (re.compile(r"\bplan\b|check-?in|how (did|was) (my|the) day|end of (the )?day|wrap(ping)? up|organi[sz]e my|"
+                r"prioriti|what should i (do|work on)|what.s (the )?plan|my day", re.I),
+     {"plan_my_day", "save_plan", "evening_checkin", "todo_add", "todo_list", "todo_done", "focus_start"}),
     (re.compile(r"brief|good (morning|afternoon|evening)|my day|what.s up|what.s happening|today", re.I),
      {"daily_briefing", "calendar_list_events", "classroom_assignments"}),
 ]

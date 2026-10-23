@@ -34,6 +34,23 @@ CREATE TABLE IF NOT EXISTS focus_sessions (
     distractions INTEGER NOT NULL DEFAULT 0,
     allow TEXT NOT NULL DEFAULT ''  -- comma-separated sites/apps allowed for this session
 );
+CREATE TABLE IF NOT EXISTS todos (
+    id INTEGER PRIMARY KEY,
+    text TEXT NOT NULL,
+    due TEXT NOT NULL DEFAULT '',   -- YYYY-MM-DD or empty
+    created TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    done_at TEXT                    -- NULL while open
+);
+CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY,
+    text TEXT NOT NULL,
+    created TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE TABLE IF NOT EXISTS plans (
+    day TEXT PRIMARY KEY,           -- YYYY-MM-DD
+    items TEXT NOT NULL,            -- JSON list of short items
+    created TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
 """
 
 

@@ -31,7 +31,11 @@ class GeminiProvider:
                     out.append(raw)
                     continue
                 parts = [types.Part.from_text(text=m["content"])] if m["content"] else []
-                parts += [types.Part.from_function_call(name=c.name, args=c.args) for c in m.get("tool_calls", [])]
+                # Tool calls made by another provider (Groq) carry no Gemini "thought signature", which Gemini
+                # rejects (HTTP 400) when it continues the conversation. Google's documented stand-in skips the check.
+                parts += [types.Part(function_call=types.FunctionCall(name=c.name, args=c.args),
+                                     thought_signature=b"skip_thought_signature_validator")
+                          for c in m.get("tool_calls", [])]
                 out.append(types.Content(role="model", parts=parts))
             elif m["role"] == "tool":
                 part = types.Part.from_function_response(name=m["name"], response={"result": m["content"]})
