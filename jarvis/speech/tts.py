@@ -37,6 +37,8 @@ def trim_silence(audio: np.ndarray, rate: int, margin_ms: int = 25) -> np.ndarra
     return audio[max(0, loud[0] - margin): min(len(audio), loud[-1] + margin)]
 
 
+IPA_RULES: list[tuple[re.Pattern, str]] = []  # (respelling, IPA) pairs; filled from pronunciations.txt
+
 INTERNAL_PAUSE_CAP = 0.16  # longest silence kept inside a clip (seconds); set from KOKORO_PAUSE_CAP, 0 = off
 
 
@@ -123,14 +125,49 @@ class KokoroEngine:
         opts.intra_op_num_threads = 6
         self.kokoro = Kokoro.from_session(
             ort.InferenceSession(str(model), opts, providers=["CPUExecutionProvider"]), str(voices))
-        self.voice = voice
+        self.voice = voice  # name, or a blend such as "af_bella:3,af_heart:1" (weights are relative)
+        self.style = self._style(voice)
         self.speed = 1.0 / length_scale  # our setting: higher = slower; Kokoro's: higher = faster
         self.lang = "en-gb" if voice.startswith("b") else "en-us"
         self.sample_rate = 24000
         self.synth("ready")  # warm-up, so the first reply isn't slower
 
+    def _style(self, voice: str):
+        """A voice name, or a weighted mix of several ("af_bella:3,af_heart:1" is 75% / 25%)."""
+        if "," not in voice and ":" not in voice:
+            return voice
+        parts = []
+        for item in voice.split(","):
+            name, _, weight = item.strip().partition(":")
+            parts.append((self.kokoro.get_voice_style(name.strip()), float(weight or 1)))
+        return sum(style * w for style, w in parts) / sum(w for _, w in parts)
+
+    @property
+    def label(self) -> str:
+        return " + ".join(item.split(":")[0].strip()[3:].title() for item in self.voice.split(","))
+
+    def _phonemes(self, text: str) -> str | None:
+        """IPA for the whole text when it contains a name with an exact pronunciation
+        (pronunciations.txt "Annas = an-nass | ɑnəs"); None to let Kokoro work it out itself."""
+        hits = [(m.start(), m.end(), ipa) for pattern, ipa in IPA_RULES for m in pattern.finditer(text)]
+        if not hits:
+            return None
+        out, pos = [], 0
+        for start, end, ipa in sorted(hits):
+            if start < pos:
+                continue
+            if text[pos:start].strip():
+                out.append(self.kokoro.tokenizer.phonemize(text[pos:start], self.lang))
+            out.append(ipa)
+            pos = end
+        if text[pos:].strip():
+            out.append(self.kokoro.tokenizer.phonemize(text[pos:], self.lang))
+        return re.sub(r"\s+([.,!?;:])", r"\1", " ".join(p.strip() for p in out))  # no space before punctuation
+
     def synth(self, text: str) -> np.ndarray:
-        audio, _ = self.kokoro.create(text, voice=self.voice, speed=self.speed, lang=self.lang)
+        phonemes = self._phonemes(text)
+        audio, _ = self.kokoro.create(phonemes or text, voice=self.style, speed=self.speed, lang=self.lang,
+                                      is_phonemes=phonemes is not None)
         audio = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
         return shorten_pauses(audio, self.sample_rate, INTERNAL_PAUSE_CAP)
 
@@ -253,13 +290,17 @@ class Pronunciations:
             return
         if mtime == self._mtime:
             return
-        rules = []
+        rules, ipa_rules = [], []
         for line in self.path.read_text(encoding="utf-8").splitlines():
             if "=" not in line or line.lstrip().startswith("#"):
                 continue
             word, sounds = (s.strip() for s in line.split("=", 1))
+            sounds, _, ipa = (s.strip() for s in sounds.partition("|"))  # optional exact IPA, used by Kokoro only
             if word and sounds:
                 rules.append((re.compile(rf"\b{re.escape(word)}\b", re.I), sounds))
+                if ipa:
+                    ipa_rules.append((re.compile(rf"\b{re.escape(sounds)}\b", re.I), ipa))
+        IPA_RULES[:] = ipa_rules
         # Longest first, so "Annas Khan" wins over "Annas".
         self._rules = sorted(rules, key=lambda r: -len(r[0].pattern))
         self._mtime = mtime
@@ -336,7 +377,7 @@ class Speaker:
             if isinstance(e, LazyEngine):
                 return e.label + ("" if e.loaded else ", loads if needed")
             if isinstance(e, KokoroEngine):
-                return f"Kokoro {e.voice[3:].title()}"
+                return f"Kokoro {e.label}"
             return {"PiperEngine": "Piper Alan", "SapiEngine": "Windows voice"}.get(type(e).__name__, type(e).__name__)
         if isinstance(self.engine, ElevenLabsEngine):
             return f"ElevenLabs (backup: {name(self.engine.fallback)})"

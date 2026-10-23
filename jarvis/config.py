@@ -38,7 +38,7 @@ class Settings:
     stt_engine: str = _env("STT_ENGINE", "groq").lower()
     whisper_model: str = _env("WHISPER_MODEL", "auto")  # auto = small.en on GPU, base.en on CPU
     tts_engine: str = _env("TTS_ENGINE", "piper").lower()  # elevenlabs | kokoro | piper | sapi
-    kokoro_voice: str = _env("KOKORO_VOICE", "bm_george")  # bm_george | bm_lewis | bm_daniel | bm_fable
+    kokoro_voice: str = _env("KOKORO_VOICE", "bm_george")  # bm_george | af_bella ... or a mix: "af_bella:3,af_heart:1"
     elevenlabs_api_key: str = _env("ELEVENLABS_API_KEY")
     elevenlabs_voice_id: str = _env("ELEVENLABS_VOICE_ID")
     elevenlabs_model: str = _env("ELEVENLABS_MODEL", "eleven_flash_v2_5")  # fastest, cheapest in credits

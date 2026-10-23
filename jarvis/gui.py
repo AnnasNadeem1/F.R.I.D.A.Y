@@ -37,6 +37,7 @@ VOICES = [  # (label, TTS_ENGINE, KOKORO_VOICE)
     ("ElevenLabs - your custom voice from .env (online)", "elevenlabs", ""),
     ("Alan (Piper) - fastest, more robotic", "piper", ""),
     ("Bella (Kokoro) - natural, American female", "kokoro", "af_bella"),
+    ("Bella + Nicole (Kokoro) - blend, smoother", "kokoro", "af_bella:1,af_nicole:1"),
     ("Heart (Kokoro) - natural, American female", "kokoro", "af_heart"),
     ("George (Kokoro) - natural, British", "kokoro", "bm_george"),
     ("Lewis (Kokoro) - natural, British", "kokoro", "bm_lewis"),
