@@ -91,7 +91,7 @@ TOOL_ACTIVITY = {
     "clipboard": "Using the clipboard", "system_status": "Checking the PC",
     "plan_my_day": "Planning your day", "save_plan": "Saving the plan", "evening_checkin": "Reviewing your day",
     "todo_add": "Adding to your list", "todo_list": "Checking your list", "todo_done": "Ticking that off",
-    "todo_remove": "Updating your list", "note_add": "Saving a note", "note_search": "Looking through your notes",
+    "todo_remove": "Updating your list", "quiet_mode": "Changing quiet mode", "note_add": "Saving a note", "note_search": "Looking through your notes",
 }
 SLOW_TOOLS = {"web_search", "news_search", "read_webpage", "get_weather", "calendar_list_events",
               "email_list_unread", "email_read", "classroom_assignments", "classroom_courses",
@@ -211,7 +211,13 @@ class Engine:
         from .reminders import ReminderScheduler, _toast
 
         def announce(kind: str, text: str):
+            from . import quiet
+
             self.l.notice(kind, text)
+            if quiet.active(focus_override=kind == "focus"):
+                if kind == "focus":
+                    _toast("Focus", text)
+                return  # quiet: the chat note and the Windows notification are all you get
             self.speaker.chime(rising=True, wait=False)
             self.speaker.say(text)
             if settings.phone_access:

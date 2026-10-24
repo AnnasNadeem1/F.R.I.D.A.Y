@@ -57,6 +57,7 @@ class Settings:
     classroom_remind_hours: str = _env("CLASSROOM_REMIND_HOURS", "24,2")  # hours before the due time
     briefing_time: str = _env("BRIEFING_TIME")  # e.g. 07:30; empty = only when asked
     briefing_location: str = _env("BRIEFING_LOCATION", "Islamabad")  # for the weather
+    quiet_hours: str = _env("QUIET_HOURS")  # e.g. 23:00-07:00: Friday stays silent (notifications only)
     plan_time: str = _env("PLAN_TIME")  # e.g. 08:30: plan the day aloud automatically; empty = only when asked
     checkin_time: str = _env("CHECKIN_TIME")  # e.g. 21:30: evening check-in; empty = only when asked
     study_goal_minutes: int = int(_env("STUDY_GOAL_MINUTES", "120"))  # focus time you want per day

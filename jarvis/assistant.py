@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Iterator
 
 from . import (briefing, claude_bridge, claude_tasks, classroom, email_tools, focus, google_tools,  # noqa: F401
-               pc_tools, planner, reminders, tasks, web_tools)  # register their tools
+               pc_tools, planner, quiet, reminders, tasks, web_tools)  # register their tools
 from .config import settings
 from .llm import Done, Provider, ToolCall
 from .memory import facts_for_prompt
@@ -40,6 +40,8 @@ ABOUT_YOURSELF = (
     "read the plan back (project, what Claude will do, and whether it may change files) and ask 'Shall I start "
     "it?', and only after a clear yes call claude_task_start. Claude starts with no memory of this conversation, "
     "so write the task out in full. "
+    "You have a quiet mode (quiet_mode) and optional QUIET_HOURS: while quiet you speak only when spoken to, "
+    "and reminders, nags and the scheduled plan or check-in wait or show as notifications. "
     "You keep their to-do list and notes, plan their day on request (plan_my_day, then save_plan), and run an "
     "evening check-in on how the day went against that plan and their study goal (evening_checkin); if PLAN_TIME "
     "or CHECKIN_TIME is set in .env, you start these yourself at that time. "
@@ -137,6 +139,9 @@ TOOL_GROUPS = [
     (re.compile(r"\bplan\b|check-?in|how (did|was) (my|the) day|end of (the )?day|wrap(ping)? up|organi[sz]e my|"
                 r"prioriti|what should i (do|work on)|what.s (the )?plan|my day", re.I),
      {"plan_my_day", "save_plan", "evening_checkin", "todo_add", "todo_list", "todo_done", "focus_start"}),
+    (re.compile(r"quiet|do not disturb|don.t disturb|\bdnd\b|\bshh+\b|be silent|leave me alone|in a (call|meeting|class)|"
+                r"i.m back|talk again|stop (talking|nagging)", re.I),
+     {"quiet_mode"}),
     (re.compile(r"brief|good (morning|afternoon|evening)|my day|what.s up|what.s happening|today", re.I),
      {"daily_briefing", "calendar_list_events", "classroom_assignments"}),
 ]

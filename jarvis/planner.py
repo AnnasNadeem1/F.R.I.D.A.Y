@@ -11,6 +11,7 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Callable
 
+from . import quiet
 from .config import settings
 from .store import db
 from .tools import tool
@@ -148,7 +149,7 @@ class DailyScheduler:
 
     def _due(self, now: datetime) -> bool:
         at = _parse_time(self.get_time())
-        if not at or self._last() == now.date():
+        if not at or self._last() == now.date() or quiet.active():
             return False
         target = now.replace(hour=at[0], minute=at[1], second=0, microsecond=0)
         limit = now.replace(hour=min(self.until_hour, 23), minute=59 if self.until_hour >= 23 else 0, second=0, microsecond=0)

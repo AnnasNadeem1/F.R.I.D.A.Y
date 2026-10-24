@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import Callable
 
+from . import quiet
 from .config import settings
 from .tools import tool
 
@@ -114,7 +115,7 @@ class BriefingScheduler:
 
     def _due(self, now: datetime) -> bool:
         at = _parse_time(settings.briefing_time)
-        if not at or _last_run() == now.date():
+        if not at or _last_run() == now.date() or quiet.active():
             return False
         target = now.replace(hour=at[0], minute=at[1], second=0, microsecond=0)
         return target <= now <= max(target + timedelta(hours=1),

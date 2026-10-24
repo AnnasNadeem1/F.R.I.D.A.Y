@@ -7,10 +7,10 @@ import logging
 import random
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Callable
 
-from . import watch
+from . import quiet, watch
 from .config import settings
 from .store import db
 from .tools import tool
@@ -40,23 +40,8 @@ STUDY_HOURS_NAGS = (
 )
 
 
-def _parse_hours(text: str) -> list[tuple[int, int]]:
-    """"20:00-22:00, 14:00-15:30" -> [(1200, 1320), (840, 930)] in minutes since midnight."""
-    out = []
-    for part in text.split(","):
-        try:
-            a, b = (x.strip() for x in part.split("-"))
-            (ah, am), (bh, bm) = (map(int, a.split(":")), map(int, b.split(":")))
-            out.append((ah * 60 + am, bh * 60 + bm))
-        except ValueError:
-            continue
-    return out
-
-
 def in_study_hours(now: datetime | None = None) -> bool:
-    now = now or datetime.now()
-    minute = now.hour * 60 + now.minute
-    return any(a <= minute < b for a, b in _parse_hours(settings.study_hours))
+    return quiet.in_ranges(settings.study_hours, now)
 
 
 def _iso(dt: datetime) -> str:
@@ -172,6 +157,25 @@ class FocusManager:
                 "distractions_today": sum(r["distractions"] for r in rows
                                           if datetime.fromisoformat(r["started"]).astimezone().date() == today)}
 
+    def daily_minutes(self, days: int = 14) -> list[tuple[date, int]]:
+        """Focus minutes for each of the last `days` days, oldest first (zeros included)."""
+        today = date.today()
+        since = datetime.now().astimezone() - timedelta(days=days + 1)
+        with db() as c:
+            rows = c.execute("SELECT started, minutes_done FROM focus_sessions "
+                             "WHERE status IN ('completed','stopped') AND started >= ?", (_iso(since),)).fetchall()
+        per_day: dict = {}
+        for r in rows:
+            d = datetime.fromisoformat(r["started"]).astimezone().date()
+            per_day[d] = per_day.get(d, 0) + r["minutes_done"]
+        return [(today - timedelta(days=i), per_day.get(today - timedelta(days=i), 0)) for i in range(days - 1, -1, -1)]
+
+    def recent_sessions(self, limit: int = 8) -> list[dict]:
+        with db() as c:
+            rows = c.execute("SELECT topic, started, planned_minutes, minutes_done, status, distractions "
+                             "FROM focus_sessions WHERE status != 'active' ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
     def status(self) -> dict:
         out = {"stats": self.stats()}
         s = self.session
@@ -210,7 +214,7 @@ class FocusManager:
                                   if s["distractions"] else " Not a single distraction. Well done.")
                         self._say("focus", f"That's {_spoken_minutes(done)} on {s['topic']}.{caught}{extra} Take a short break.")
                 return
-        if not settings.distraction_watch or not (s or in_study_hours()):
+        if not settings.distraction_watch or not (s or in_study_hours()) or quiet.active(focus_override=s is not None):
             self._bad_since = None
             return
         program, title = watch.foreground()

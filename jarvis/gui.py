@@ -14,7 +14,7 @@ import random
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime
 from logging.handlers import RotatingFileHandler
 
 from PySide6.QtCore import QObject, QPointF, QProcess, QRectF, Qt, QTimer, QUrl, Signal
@@ -24,10 +24,11 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout,
     QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
-    QMessageBox, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QSystemTrayIcon, QTableWidget, QTableWidgetItem,
+    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QSystemTrayIcon, QTableWidget, QTableWidgetItem,
     QTextBrowser, QVBoxLayout, QWidget,
 )
 
+from . import quiet
 from .config import ROOT, settings, update_env
 from .engine import Engine, Listener
 
@@ -124,6 +125,13 @@ QPushButton#primary:hover {{ background: rgba(255,159,67,0.22); }}
 QPushButton#mic {{ font-family: '{HEAD_FONT}'; letter-spacing: 2px; border-radius: 14px; padding: 6px 16px; }}
 QPushButton#mic:checked {{ background: rgba(47,227,196,0.10); border: 1px solid {TEAL}; color: {TEAL}; }}
 QPushButton#mic:!checked {{ background: transparent; border: 1px solid #3a3f48; color: {DIM}; }}
+QPushButton#quiet {{ font-family: '{HEAD_FONT}'; letter-spacing: 2px; border-radius: 14px; padding: 6px 16px; }}
+QPushButton#quiet:checked {{ background: rgba(180,140,255,0.12); border: 1px solid {VIOLET}; color: {VIOLET}; }}
+QPushButton#quiet:!checked {{ background: transparent; border: 1px solid #3a3f48; color: {DIM}; }}
+QFrame#tile {{ background: #0f141c; border: 1px solid #1d232c; border-radius: 6px; }}
+QLabel#big {{ font-family: '{HEAD_FONT}'; font-size: 28px; color: {AMBER}; }}
+QProgressBar {{ background: #161b23; border: none; border-radius: 2px; max-height: 4px; min-height: 4px; }}
+QProgressBar::chunk {{ background: {AMBER}; border-radius: 2px; }}
 QCheckBox {{ spacing: 8px; }}
 QCheckBox::indicator {{ width: 14px; height: 14px; border: 1px solid #3a3f48; border-radius: 3px; background: #0f141c; }}
 QCheckBox::indicator:checked {{ background: {AMBER}; border-color: {AMBER}; }}
@@ -327,6 +335,60 @@ class HudPanel(QFrame):
             p.drawLine(QPointF(x, y), QPointF(x, y + dy * length))
 
 
+class BarChart(QWidget):
+    """Focus minutes per day as bars, with the daily goal as a dashed teal line."""
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumHeight(150)
+        self.data: list[tuple[date, int]] = []
+        self.goal = 0
+
+    def set_data(self, data, goal: int):
+        self.data, self.goal = data, goal
+        self.update()
+
+    def paintEvent(self, _):
+        if not self.data:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        font = QFont("Segoe UI")
+        font.setPointSizeF(7.5)
+        p.setFont(font)
+        w, h = self.width(), self.height()
+        side, bottom, top = 8, 22, 16
+        base = h - bottom
+        usable = base - top
+        peak = max([m for _, m in self.data] + [self.goal, 30]) * 1.15
+        slot = (w - 2 * side) / len(self.data)
+        bar = slot * 0.56
+        p.setPen(QPen(QColor("#1d232c"), 1))
+        p.drawLine(side, base, w - side, base)
+        if self.goal:
+            gy = base - self.goal / peak * usable
+            pen = QPen(QColor(TEAL), 1, Qt.DashLine)
+            p.setPen(pen)
+            p.drawLine(QPointF(side, gy), QPointF(w - side, gy))
+            p.setPen(QColor(TEAL))
+            p.drawText(QRectF(side, gy - 15, 120, 14), Qt.AlignLeft | Qt.AlignVCenter, f"GOAL {self.goal} MIN")
+        today = date.today()
+        for i, (d, minutes) in enumerate(self.data):
+            x = side + i * slot + (slot - bar) / 2
+            bh = minutes / peak * usable
+            color = QColor(TEAL if self.goal and minutes >= self.goal else AMBER)
+            if not minutes:
+                color.setAlpha(60)
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(x, base - max(bh, 2.0), bar, max(bh, 2.0)), 2, 2)
+            p.fillPath(path, color)
+            if minutes:
+                p.setPen(QColor(DIM))
+                p.drawText(QRectF(x - 8, base - bh - 15, bar + 16, 14), Qt.AlignCenter, str(minutes))
+            p.setPen(QColor(AMBER if d == today else DIM))
+            p.drawText(QRectF(x - 8, base + 4, bar + 16, 14), Qt.AlignCenter, d.strftime("%a")[:2].upper())
+
+
 class Backdrop(QWidget):
     """Window background: near-black with a faint HUD grid."""
 
@@ -466,7 +528,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.nav_group = QButtonGroup(self)
         self.pages = {}
-        for i, (name, build) in enumerate((("Chat", self._chat_page), ("Reminders", self._reminders_page),
+        for i, (name, build) in enumerate((("Chat", self._chat_page), ("Study", self._study_page), ("Reminders", self._reminders_page),
                                            ("Memory", self._memory_page), ("Claude", self._claude_page),
                                            ("Phone", self._phone_page), ("Settings", self._settings_page))):
             b = QPushButton(name.upper(), objectName="nav", checkable=True)
@@ -539,6 +601,11 @@ class MainWindow(QMainWindow):
         self.toggle.setToolTip("Turning the mic off releases it completely. Reminders and Claude alerts still play.")
         self._sync_toggle_text()
         side.addWidget(self.toggle, 0, Qt.AlignRight)
+        self.quiet_btn = QPushButton("QUIET", objectName="quiet", checkable=True)
+        self.quiet_btn.setToolTip(f"Quiet mode for two hours: {settings.name} stays silent (notifications only) "
+                                  "until it ends or you turn it off. Or say \"go quiet\".")
+        self.quiet_btn.toggled.connect(self.set_quiet)
+        side.addWidget(self.quiet_btn, 0, Qt.AlignRight)
         side.addStretch(1)
         head.addLayout(side)
         return head
@@ -547,6 +614,12 @@ class MainWindow(QMainWindow):
         now = datetime.now()
         self.clock.setText(now.strftime("%H:%M"))
         self.clock_date.setText(now.strftime("%a %d %b %Y").upper())
+        left = quiet.remaining_text()  # voice can flip quiet mode too, so follow the real state
+        if self.quiet_btn.isChecked() != bool(left):
+            self.quiet_btn.blockSignals(True)
+            self.quiet_btn.setChecked(bool(left))
+            self.quiet_btn.blockSignals(False)
+        self.quiet_btn.setText(f"QUIET  {left}" if left else "QUIET")
 
     # ---- pages
 
@@ -570,6 +643,176 @@ class MainWindow(QMainWindow):
         row.addWidget(send)
         v.addLayout(row)
         return w
+
+    def _tile(self, caption: str):
+        """A stat tile: caption, big value, small detail line. Returns (frame, value, detail)."""
+        frame = QFrame(objectName="tile")
+        v = QVBoxLayout(frame)
+        v.setContentsMargins(12, 9, 12, 10)
+        v.setSpacing(1)
+        v.addWidget(QLabel(caption, objectName="section"))
+        value = QLabel("-", objectName="big")
+        detail = QLabel("", objectName="hint")
+        v.addWidget(value)
+        v.addWidget(detail)
+        return frame, value, detail
+
+    def _study_page(self) -> QWidget:
+        w, outer = _page((4, 4, 4, 4))
+        scroll = QScrollArea(widgetResizable=True, frameShape=QFrame.NoFrame)
+        inner, v = _page((12, 10, 12, 12))
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+
+        tiles = QHBoxLayout()
+        tiles.setSpacing(10)
+        f, self.st_today, self.st_today_sub = self._tile("TODAY")
+        self.st_bar = QProgressBar(textVisible=False, maximum=100)
+        f.layout().addWidget(self.st_bar)
+        tiles.addWidget(f, 1)
+        f, self.st_week, self.st_week_sub = self._tile("LAST 7 DAYS")
+        tiles.addWidget(f, 1)
+        f, self.st_streak, self.st_streak_sub = self._tile("STREAK")
+        tiles.addWidget(f, 1)
+        f, self.st_drift, self.st_drift_sub = self._tile("CAUGHT DRIFTING")
+        tiles.addWidget(f, 1)
+        v.addLayout(tiles)
+
+        v.addSpacing(4)
+        v.addWidget(QLabel("FOCUS SESSION", objectName="section"))
+        self.st_now = QLabel("", wordWrap=True)
+        v.addWidget(self.st_now)
+        start_row = QHBoxLayout()
+        self.st_topic = QLineEdit(placeholderText="What are you working on?")
+        self.st_minutes = QSpinBox(minimum=5, maximum=180, value=45, suffix=" min")
+        self.st_allow = QLineEdit(placeholderText="Allow, e.g. youtube")
+        self.st_allow.setMaximumWidth(200)
+        self.st_start = QPushButton("START", objectName="primary")
+        self.st_start.clicked.connect(self.start_focus)
+        self.st_stop = QPushButton("STOP SESSION")
+        self.st_stop.clicked.connect(self.stop_focus)
+        for wdg in (self.st_topic, self.st_minutes, self.st_allow, self.st_start, self.st_stop):
+            start_row.addWidget(wdg, 1 if wdg is self.st_topic else 0)
+        v.addLayout(start_row)
+
+        v.addSpacing(4)
+        v.addWidget(QLabel("LAST 14 DAYS", objectName="section"))
+        self.st_chart = BarChart()
+        v.addWidget(self.st_chart)
+
+        bottom = QHBoxLayout()
+        bottom.setSpacing(14)
+        left = QVBoxLayout()
+        left.addWidget(QLabel("RECENT SESSIONS", objectName="section"))
+        self.st_table = _table(["When", "Topic", "Min", "Drifted", "Result"])
+        self.st_table.setMinimumHeight(170)
+        self.st_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        for i in (0, 2, 3, 4):
+            self.st_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        left.addWidget(self.st_table)
+        bottom.addLayout(left, 3)
+        right = QVBoxLayout()
+        right.addWidget(QLabel("TO-DO", objectName="section"))
+        self.st_todos = QListWidget()
+        self.st_todos.setMinimumHeight(140)
+        self.st_todos.setWordWrap(True)
+        right.addWidget(self.st_todos, 1)
+        self.st_todo_input = QLineEdit(placeholderText="Add a to-do")
+        self.st_todo_input.returnPressed.connect(self.add_todo)
+        right.addWidget(self.st_todo_input)
+        tick = QPushButton("TICK OFF SELECTED")
+        tick.clicked.connect(self.tick_todo)
+        right.addWidget(tick)
+        bottom.addLayout(right, 2)
+        v.addLayout(bottom)
+        v.addStretch(1)
+        return w
+
+    def _fill_study(self):
+        from datetime import timedelta
+
+        from .focus import MANAGER
+
+        stats = MANAGER.stats()
+        goal = max(1, settings.study_goal_minutes)
+        today = stats["today_minutes"]
+        self.st_today.setText(f"{today} min")
+        self.st_today_sub.setText(f"goal {goal} min" + ("  ·  reached" if today >= goal else ""))
+        self.st_bar.setValue(min(100, round(today / goal * 100)))
+        self.st_week.setText(f"{stats['last_7_days_minutes'] // 60}h {stats['last_7_days_minutes'] % 60:02d}m")
+        self.st_week_sub.setText(f"about {round(stats['last_7_days_minutes'] / 7)} min a day")
+        self.st_streak.setText(f"{stats['streak_days']} day{'s' if stats['streak_days'] != 1 else ''}")
+        self.st_streak_sub.setText(f"{settings.study_streak_minutes}+ min a day counts")
+        self.st_drift.setText(str(stats["distractions_today"]))
+        self.st_drift_sub.setText("today" + ("" if settings.distraction_watch else "  ·  watch is off"))
+
+        s = MANAGER.session
+        if s:
+            left = max(0, int((s["started"] + timedelta(minutes=s["minutes"]) - datetime.now().astimezone())
+                              .total_seconds() // 60))
+            allowed = f"  ·  allowed: {', '.join(s['allow'])}" if s["allow"] else ""
+            self.st_now.setText(f"Working on {s['topic']}: {left} min left, drifted {s['distractions']}x{allowed}")
+        else:
+            self.st_now.setText("No session running. Start one here, or say \"I'm studying for 45 minutes\".")
+        for wdg in (self.st_topic, self.st_minutes, self.st_allow, self.st_start):
+            wdg.setVisible(s is None)
+        self.st_stop.setVisible(s is not None)
+        self.st_chart.set_data(MANAGER.daily_minutes(14), settings.study_goal_minutes)
+
+        sessions = MANAGER.recent_sessions(8)
+        self.st_table.setRowCount(len(sessions))
+        for row, r in enumerate(sessions):
+            when = datetime.fromisoformat(r["started"]).astimezone().strftime("%a %H:%M")
+            result = {"completed": "done", "stopped": "stopped early", "lost": "interrupted"}.get(r["status"], r["status"])
+            for col, text in enumerate((when, r["topic"], f"{r['minutes_done']}/{r['planned_minutes']}",
+                                        str(r["distractions"]), result)):
+                self.st_table.setItem(row, col, QTableWidgetItem(text))
+
+        from .tasks import todo_list
+
+        keep = self.st_todos.currentRow()
+        items = todo_list()["open"]
+        self.st_todos.clear()
+        for t in items:
+            item = QListWidgetItem(t["text"] + (f"   ({t['due']})" if t["due"] else ""))
+            item.setData(Qt.UserRole, t["id"])
+            self.st_todos.addItem(item)
+        if 0 <= keep < self.st_todos.count():
+            self.st_todos.setCurrentRow(keep)
+
+    def start_focus(self):
+        from .focus import MANAGER
+
+        allow = [a.strip() for a in self.st_allow.text().split(",") if a.strip()]
+        r = MANAGER.start(self.st_minutes.value(), self.st_topic.text().strip() or "your work", allow)
+        if "error" in r:
+            QMessageBox.information(self, settings.name, r["error"])
+        self.st_topic.clear()
+        self.st_allow.clear()
+        self._fill_study()
+
+    def stop_focus(self):
+        from .focus import MANAGER
+
+        MANAGER.stop()
+        self._fill_study()
+
+    def add_todo(self):
+        from .tasks import todo_add
+
+        text = self.st_todo_input.text().strip()
+        if text:
+            todo_add(text)
+            self.st_todo_input.clear()
+            self._fill_study()
+
+    def tick_todo(self):
+        from .tasks import todo_done
+
+        item = self.st_todos.currentItem()
+        if item:
+            todo_done(id=item.data(Qt.UserRole))
+            self._fill_study()
 
     def _reminders_page(self) -> QWidget:
         w, v = _page()
@@ -840,6 +1083,36 @@ class MainWindow(QMainWindow):
         brief_now.clicked.connect(lambda: threading.Thread(target=self.engine.run_briefing, daemon=True).start())
         f.addRow(brief_now)
 
+        f = section("FOCUS, PLANNING AND QUIET")
+        self.chk_watch = QCheckBox("Watch for distractions (YouTube, games, ...) during focus sessions and study hours")
+        self.chk_watch.setChecked(settings.distraction_watch)
+        f.addRow(self.chk_watch)
+        edit_dist = QPushButton("EDIT DISTRACTION LIST")
+        edit_dist.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(ROOT / "distractions.txt"))))
+        f.addRow(edit_dist)
+        self.sp_goal = QSpinBox(minimum=15, maximum=720, value=settings.study_goal_minutes, suffix=" min")
+        self.sp_goal.setMaximumWidth(140)
+        f.addRow(_label("Daily focus goal"), self.sp_goal)
+        self.sp_streak = QSpinBox(minimum=5, maximum=240, value=settings.study_streak_minutes, suffix=" min")
+        self.sp_streak.setMaximumWidth(140)
+        f.addRow(_label("Minutes in a day that keep your streak"), self.sp_streak)
+        self.ed_study_hours = QLineEdit(settings.study_hours)
+        self.ed_study_hours.setPlaceholderText("20:00-22:00  (empty = only during focus sessions)")
+        self.ed_study_hours.setMaximumWidth(360)
+        f.addRow(_label("Study hours: also watch for distractions (HH:MM-HH:MM, comma-separated)"), self.ed_study_hours)
+        self.ed_plan_time = QLineEdit(settings.plan_time)
+        self.ed_plan_time.setPlaceholderText("08:30  (empty = only when I ask)")
+        self.ed_plan_time.setMaximumWidth(220)
+        f.addRow(_label("Plan my day aloud at"), self.ed_plan_time)
+        self.ed_checkin_time = QLineEdit(settings.checkin_time)
+        self.ed_checkin_time.setPlaceholderText("21:30  (empty = only when I ask)")
+        self.ed_checkin_time.setMaximumWidth(220)
+        f.addRow(_label("Evening check-in at"), self.ed_checkin_time)
+        self.ed_quiet_hours = QLineEdit(settings.quiet_hours)
+        self.ed_quiet_hours.setPlaceholderText("23:00-07:00  (empty = never)")
+        self.ed_quiet_hours.setMaximumWidth(360)
+        f.addRow(_label("Quiet hours: stay silent, notifications only"), self.ed_quiet_hours)
+
         f = section("CLAUDE TASKS BY VOICE")
         self.chk_ctasks = QCheckBox('Let me start Claude Code tasks by voice ("ask Claude to ...")')
         self.chk_ctasks.setChecked(settings.claude_tasks)
@@ -979,6 +1252,10 @@ class MainWindow(QMainWindow):
                 control.blockSignals(False)
         self._sync_toggle_text()
 
+    def set_quiet(self, on: bool):
+        quiet.set_manual(120 if on else None)
+        self._tick_clock()
+
     def _sync_toggle_text(self):
         self.toggle.setText("●  MIC LIVE" if self.toggle.isChecked() else "○  MIC OFF")
 
@@ -989,7 +1266,9 @@ class MainWindow(QMainWindow):
             return
         name = next(n for n, i in self.pages.items() if i == self.stack.currentIndex())
         try:
-            if name == "Reminders":
+            if name == "Study":
+                self._fill_study()
+            elif name == "Reminders":
                 self._fill_reminders()
             elif name == "Memory":
                 self._fill_memory()
@@ -1137,6 +1416,13 @@ class MainWindow(QMainWindow):
             "CLAUDE_TASKS": "1" if self.chk_ctasks.isChecked() else "0",
             "CLAUDE_TASK_MODEL": self.cb_cmodel.currentData(),
             "CLAUDE_TASK_MINUTES": str(self.sp_cminutes.value()),
+            "DISTRACTION_WATCH": "1" if self.chk_watch.isChecked() else "0",
+            "STUDY_GOAL_MINUTES": str(self.sp_goal.value()),
+            "STUDY_STREAK_MINUTES": str(self.sp_streak.value()),
+            "STUDY_HOURS": self.ed_study_hours.text().strip(),
+            "PLAN_TIME": self.ed_plan_time.text().strip(),
+            "CHECKIN_TIME": self.ed_checkin_time.text().strip(),
+            "QUIET_HOURS": self.ed_quiet_hours.text().strip(),
             "BRIEFING_TIME": self.ed_brief_time.text().strip(),
             "BRIEFING_LOCATION": self.ed_brief_place.text().strip() or "Islamabad",
             "CLASSROOM_REMINDERS": "1" if self.chk_classroom.isChecked() else "0",
