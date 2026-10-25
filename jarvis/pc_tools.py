@@ -175,6 +175,8 @@ def _open_clipboard():
      "required": ["action"]},
 )
 def clipboard(action: str, text: str = ""):
+    if not _asked(r"clipboard|copi|paste|\bcopy\b"):
+        return {"error": "the user didn't ask about the clipboard"}
     _open_clipboard()
     try:
         if action == "read":
