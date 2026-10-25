@@ -16,6 +16,7 @@ import threading
 import time
 from datetime import date, datetime
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QPointF, QProcess, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap,
@@ -1069,6 +1070,12 @@ class MainWindow(QMainWindow):
         self.ed_classroom_hours.setMaximumWidth(140)
         self.ed_classroom_hours.setToolTip("Hours before the due time, comma-separated, e.g. 24,2")
         f.addRow(_label("Remind this many hours before (e.g. 24,2)"), self.ed_classroom_hours)
+        self.ed_cr_folder = QLineEdit(settings.classroom_folder)
+        self.ed_cr_folder.setPlaceholderText(str(Path.home() / "Documents" / "University") + "  (default)")
+        f.addRow(_label("Folder for downloaded lectures"), self.ed_cr_folder)
+        self.ed_cr_account = QLineEdit(settings.classroom_account)
+        self.ed_cr_account.setPlaceholderText("you@school.edu  (so your browser uses the right Google account)")
+        f.addRow(_label("School Google account (for downloads)"), self.ed_cr_account)
         self._update_classroom_state()
 
         f = section("DAILY BRIEFING")
@@ -1426,6 +1433,8 @@ class MainWindow(QMainWindow):
             "BRIEFING_TIME": self.ed_brief_time.text().strip(),
             "BRIEFING_LOCATION": self.ed_brief_place.text().strip() or "Islamabad",
             "CLASSROOM_REMINDERS": "1" if self.chk_classroom.isChecked() else "0",
+            "CLASSROOM_FOLDER": self.ed_cr_folder.text().strip(),
+            "CLASSROOM_ACCOUNT": self.ed_cr_account.text().strip(),
             "CLASSROOM_REMIND_HOURS": ",".join(p.strip() for p in self.ed_classroom_hours.text().split(",")
                                                if p.strip().replace(".", "", 1).isdigit()) or "24,2",
         })

@@ -26,6 +26,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/classroom.courses.readonly",
     # Your own work and its status. (Google reports the older name, coursework.me.readonly, as this one.)
     "https://www.googleapis.com/auth/classroom.student-submissions.me.readonly",
+    # Lecture materials (slides, handouts) posted to a class. Added later: older logins don't have it.
+    "https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly",
 ]
 NOT_SET_UP = ("Google Classroom isn't connected yet. Tell the user to open Settings and press "
               "CONNECT GOOGLE CLASSROOM (or run: python -m jarvis --classroom-login).")
@@ -46,7 +48,9 @@ def _credentials():
 
     if not TOKEN.exists():
         raise ClassroomNotSetUp(NOT_SET_UP)
-    creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
+    # Use the permissions this token actually has. Asking to refresh with a permission it was never
+    # given (one added later) would fail and lock out Classroom until the next sign-in.
+    creds = Credentials.from_authorized_user_file(str(TOKEN))
     if not creds.valid:
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())

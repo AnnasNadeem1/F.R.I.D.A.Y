@@ -13,7 +13,7 @@ The code and folder are called `jarvis`. The assistant's name is a setting (`ASS
 | **Memory** | Remembers facts about you, keeps a to-do list and notes. All in a local SQLite database. |
 | **Reminders** | Spoken and Windows notification. Missed ones are announced at the next start. |
 | **Calendar, email** | Google Calendar, plus Yahoo Mail or Gmail. Email is only sent after she reads the draft back and you say a clear yes, enforced in code. |
-| **School** | Google Classroom: what's due, what's overdue, automatic reminders 24 h and 2 h before each unfinished assignment. |
+| **School** | Google Classroom: what's due, what's overdue, automatic reminders 24 h and 2 h before each unfinished assignment. She can also download new lecture slides and handouts into a folder per class. |
 | **Study coach** | Focus sessions with a log, daily totals and streaks, distraction watch, a morning day plan and an evening check-in, and a persona that pushes back when you want to skip. |
 | **PC control** | Open apps and sites, media keys and volume, lock the screen, describe your screen, clipboard, battery and memory. |
 | **Claude Code** | Tells you when a session finishes or needs you, and can start read-only or edit tasks on your Claude plan, after your spoken yes. |
@@ -73,7 +73,7 @@ A HUD-style window plus a tray icon. The core's colour shows her state: amber is
 - **Reminders:** "Remind me in 20 minutes to stretch." "What reminders do I have?"
 - **Web:** "What's the latest on the Pakistan cricket team?" "Will it rain in Islamabad tomorrow?"
 - **To-do and notes:** "Add buy a charger to my to-do list." "What's on my list?" "I finished the charger." "Note that the lab is on Thursday."
-- **School:** "What's due this week?" "Did I submit the lab report?"
+- **School:** "What's due this week?" "Did I submit the lab report?" "What new slides are there in Deep Learning?" "Download my new lectures."
 - **Briefing:** "Good morning" gives weather, today's calendar, assignments, recent email and reminders.
 
 ## Study coach
@@ -114,6 +114,7 @@ Most of these can be changed in the app. Secrets live in `.env`, and `.env.examp
 | `STUDY_GOAL_MINUTES`, `STUDY_STREAK_MINUTES` | `120`, `25` | Daily focus goal, minutes that keep a streak |
 | `DISTRACTION_WATCH`, `STUDY_HOURS` | `1`, off | Distraction nags, and extra hours to watch |
 | `QUIET_HOURS` | off | Daily range when she stays silent, e.g. `23:00-07:00` |
+| `CLASSROOM_FOLDER`, `CLASSROOM_ACCOUNT` | `Documents\University`, | Where downloaded lectures go, and the school email for the browser |
 | `CLAUDE_TASKS`, `CLAUDE_PROJECTS`, `CLAUDE_TASK_MODEL`, `CLAUDE_TASK_MINUTES` | `1`, see below, `sonnet`, `10` | Voice-launched Claude tasks |
 
 **Files you can edit** (changes apply immediately): `pronunciations.txt` (`Annas = an-nass | ˈʌnəs`, where the part after `|` is optional exact IPA for the Kokoro voice), `vocabulary.txt` (words speech recognition should expect), `distractions.txt` (what counts as a distraction).
@@ -153,6 +154,12 @@ Read-only: she can't change or submit anything.
 2. In **Settings → CONNECT GOOGLE CLASSROOM** (or `python -m jarvis --classroom-login`) sign in with the account your Classroom is on.
 
 Reminder timing is `CLASSROOM_REMIND_HOURS` (default `24,2`). Some schools block outside apps; only the school's IT admin can allow it.
+
+**Downloading lectures:** "Friday, download my new lectures" lists the slides and handouts attached in your classes, reads the plan back (how many files, which folders) and starts only after your yes. Listing them needs one extra Classroom permission (lecture materials), so press **CONNECT GOOGLE CLASSROOM** once more after updating. No Google Drive permission is used: Friday opens each file's download link in your normal browser, where you're signed in to your school account, waits for the download, and moves the file from Downloads into `<CLASSROOM_FOLDER>\<class name>\` (default `Documents\University`).
+- Set `CLASSROOM_ACCOUNT` to your school email so the browser picks the right Google account when you're signed in to several.
+- Google Docs and Slides are saved as PDF, Sheets as XLSX. YouTube videos, links and forms can't be downloaded; she can list them.
+- Each file is fetched once. Executables and scripts are never kept, nothing is overwritten, files only go into that folder, and she never opens what she downloads. Only the file that matches the one she asked for is moved; your other downloads are left alone.
+- The browser must be set to download without asking where to save, and large files can show a Google confirmation page that stops the download.
 
 ### Phone (tested on Android with Chrome)
 
@@ -219,6 +226,7 @@ jarvis/
   google_tools.py  Google Calendar and the Gmail backend
   email_tools.py   email tools (Yahoo or Gmail) and the send safeguard
   classroom.py     Google Classroom assignments and due-date reminders
+  classroom_files.py  lecture material listing and browser-based downloads into class folders
   briefing.py      the daily briefing
   claude_tasks.py  voice-launched Claude Code tasks
   claude_bridge.py Claude Code event listener

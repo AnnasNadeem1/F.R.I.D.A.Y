@@ -41,6 +41,17 @@ CREATE TABLE IF NOT EXISTS todos (
     created TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     done_at TEXT                    -- NULL while open
 );
+CREATE TABLE IF NOT EXISTS classroom_downloads (
+    file_id TEXT PRIMARY KEY,       -- the Drive file id, so a file is only fetched once
+    course_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    path TEXT NOT NULL,
+    at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE TABLE IF NOT EXISTS classroom_folders (
+    course_id TEXT PRIMARY KEY,
+    folder TEXT NOT NULL            -- the short name chosen for this class's folder
+);
 CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY,
     text TEXT NOT NULL,

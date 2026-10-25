@@ -8,7 +8,8 @@ import time
 from datetime import datetime
 from typing import Iterator
 
-from . import (briefing, claude_bridge, claude_tasks, classroom, email_tools, focus, google_tools,  # noqa: F401
+from . import (briefing, claude_bridge, claude_tasks, classroom, classroom_files, email_tools, focus,  # noqa: F401
+               google_tools,
                pc_tools, planner, quiet, reminders, tasks, web_tools)  # register their tools
 from .config import settings
 from .llm import Done, Provider, ToolCall
@@ -40,6 +41,8 @@ ABOUT_YOURSELF = (
     "read the plan back (project, what Claude will do, and whether it may change files) and ask 'Shall I start "
     "it?', and only after a clear yes call claude_task_start. Claude starts with no memory of this conversation, "
     "so write the task out in full. "
+    "You can list a class's lecture materials (classroom_materials) and download them into the university folder "
+    "(classroom_download): it opens their browser for each file, only after they say yes to your read-back. "
     "You have a quiet mode (quiet_mode) and optional QUIET_HOURS: while quiet you speak only when spoken to, "
     "and reminders, nags and the scheduled plan or check-in wait or show as notifications. "
     "You keep their to-do list and notes, plan their day on request (plan_my_day, then save_plan), and run an "
@@ -139,6 +142,9 @@ TOOL_GROUPS = [
     (re.compile(r"\bplan\b|check-?in|how (did|was) (my|the) day|end of (the )?day|wrap(ping)? up|organi[sz]e my|"
                 r"prioriti|what should i (do|work on)|what.s (the )?plan|my day", re.I),
      {"plan_my_day", "save_plan", "evening_checkin", "todo_add", "todo_list", "todo_done", "focus_start"}),
+    (re.compile(r"lecture|slides?|handouts?|material|download|\bpdfs?\b|course (files|notes)|class notes|"
+                r"new (files|notes|slides)", re.I),
+     {"classroom_materials", "classroom_download", "classroom_courses"}),
     (re.compile(r"quiet|do not disturb|don.t disturb|\bdnd\b|\bshh+\b|be silent|leave me alone|in a (call|meeting|class)|"
                 r"i.m back|talk again|stop (talking|nagging)", re.I),
      {"quiet_mode"}),

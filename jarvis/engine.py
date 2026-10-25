@@ -91,7 +91,7 @@ TOOL_ACTIVITY = {
     "clipboard": "Using the clipboard", "system_status": "Checking the PC",
     "plan_my_day": "Planning your day", "save_plan": "Saving the plan", "evening_checkin": "Reviewing your day",
     "todo_add": "Adding to your list", "todo_list": "Checking your list", "todo_done": "Ticking that off",
-    "todo_remove": "Updating your list", "quiet_mode": "Changing quiet mode", "note_add": "Saving a note", "note_search": "Looking through your notes",
+    "todo_remove": "Updating your list", "classroom_materials": "Checking class materials", "classroom_download": "Preparing your downloads", "quiet_mode": "Changing quiet mode", "note_add": "Saving a note", "note_search": "Looking through your notes",
 }
 SLOW_TOOLS = {"web_search", "news_search", "read_webpage", "get_weather", "calendar_list_events",
               "email_list_unread", "email_read", "classroom_assignments", "classroom_courses",
@@ -232,6 +232,9 @@ class Engine:
             announce("claude", text)
 
         ReminderScheduler(reminder)
+        from . import classroom_files
+        classroom_files.ON_DONE = lambda text: announce("classroom", text)
+        classroom_files.ON_ACTIVITY = self.l.activity
         from .focus import MANAGER as focus_manager
         focus_manager.announce = announce
         focus_manager.start_thread()

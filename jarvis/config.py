@@ -64,6 +64,8 @@ class Settings:
     distraction_watch: bool = _env("DISTRACTION_WATCH", "1") == "1"  # nag about distracting windows while focusing
     study_hours: str = _env("STUDY_HOURS")  # e.g. 20:00-22:00, 14:00-16:00: also watch (and nag) in these hours
     study_streak_minutes: int = int(_env("STUDY_STREAK_MINUTES", "25"))  # minutes in a day that count for the streak
+    classroom_folder: str = _env("CLASSROOM_FOLDER")  # where lecture downloads go (default Documents\\University)
+    classroom_account: str = _env("CLASSROOM_ACCOUNT")  # school email, so the browser picks the right Google account
     claude_tasks: bool = _env("CLAUDE_TASKS", "1") == "1"  # voice-launched Claude Code tasks
     claude_projects: str = _env("CLAUDE_PROJECTS", r"jarvis=C:\jarvis;fedcard=C:\fedcard")  # name=folder;...
     claude_task_model: str = _env("CLAUDE_TASK_MODEL", "sonnet")  # sonnet | haiku | opus
