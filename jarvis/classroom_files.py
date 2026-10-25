@@ -52,26 +52,32 @@ _lock = threading.Lock()
 
 # ---------------------------------------------------------------- paths
 
-def downloads_dir() -> Path:
-    """The user's real Downloads folder (it can be moved), falling back to ~/Downloads."""
+def _known_folder(guid: str) -> Path | None:
+    """A Windows known folder by id: these can be moved (Documents is often inside OneDrive)."""
     try:
         class GUID(ctypes.Structure):
             _fields_ = [("data", ctypes.c_ubyte * 16)]
 
-        guid = GUID.from_buffer_copy(uuid.UUID("374DE290-123F-4565-9164-39C4925E467B").bytes_le)
+        g = GUID.from_buffer_copy(uuid.UUID(guid).bytes_le)
         out = ctypes.c_wchar_p()
-        if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(out)) == 0:
+        if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) == 0:
             path = Path(out.value)
             ctypes.windll.ole32.CoTaskMemFree(out)
             if path.is_dir():
                 return path
     except Exception:
         log.debug("known-folder lookup failed", exc_info=True)
-    return Path.home() / "Downloads"
+    return None
+
+
+def downloads_dir() -> Path:
+    return _known_folder("374DE290-123F-4565-9164-39C4925E467B") or Path.home() / "Downloads"
 
 
 def root_dir() -> Path:
-    return Path(settings.classroom_folder) if settings.classroom_folder else Path.home() / "Documents" / "University"
+    if settings.classroom_folder:
+        return Path(settings.classroom_folder)
+    return (_known_folder("FDD39AD0-238F-46AF-ADB4-6C85480369C7") or Path.home() / "Documents") / "University"
 
 
 def safe_name(name: str, limit: int = 80) -> str:
@@ -215,6 +221,11 @@ def _downloaded_ids() -> set[str]:
         return {r["file_id"] for r in c.execute("SELECT file_id FROM classroom_downloads")}
 
 
+def _saved_paths() -> dict[str, str]:
+    with db() as c:
+        return {r["file_id"]: r["path"] for r in c.execute("SELECT file_id, path FROM classroom_downloads")}
+
+
 def _posted(iso: str) -> str:
     try:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone().strftime("%a %d %b")
@@ -254,8 +265,9 @@ def _gather(course: str, new_only: bool) -> tuple[list[dict], list[dict], list[d
 @_guard
 def classroom_materials(course: str = "", new_only: bool = True):
     files, videos, links = _gather(course, new_only)
-    return {"files": [{"title": f["title"], "class": f["course"], "from": f["source"], "posted": _posted(f["posted"])}
-                      for f in files[:40]],
+    saved = _saved_paths()
+    return {"files": [{"title": f["title"], "class": f["course"], "from": f["source"], "posted": _posted(f["posted"]),
+                       "saved_at": saved.get(f["id"])} for f in files[:40]],
             "file_count": len(files),
             "videos": [{"title": v["title"], "class": v["course"]} for v in videos[:10]],
             "links": [{"title": v["title"], "class": v["course"]} for v in links[:10]]}
@@ -319,6 +331,9 @@ def _fetch_one(item: dict, dest_dir: Path, downloads: Path) -> tuple[Path | None
                   + (f" ({settings.classroom_account})" if settings.classroom_account else "") + "?")
 
 
+_last_result: dict = {"text": "", "at": 0.0}
+
+
 def _run_batch(files: list[dict], folders: dict[str, Path]):
     global _batch
     downloads = downloads_dir()
@@ -341,11 +356,12 @@ def _run_batch(files: list[dict], folders: dict[str, Path]):
             else:
                 failed.append((item["title"], why))
     finally:
-        where = ", ".join(sorted({p.parent.name for p in ok})) or "nowhere"
+        where = " and ".join(sorted({str(p.parent) for p in ok})) or "nowhere"
         text = f"Downloaded {len(ok)} of {len(files)} files into {where}."
         if failed:
             text += f" Couldn't get {failed[0][0]}: {failed[0][1]}" + (f", and {len(failed) - 1} more." if len(failed) > 1 else ".")
         log.info("classroom batch: %s", text)
+        _last_result.update(text=text, at=time.time())
         _batch = None
         if ON_ACTIVITY:
             ON_ACTIVITY("")
@@ -353,39 +369,85 @@ def _run_batch(files: list[dict], folders: dict[str, Path]):
             ON_DONE(text)
 
 
+PENDING_MINUTES = 10
+
+
 @tool(
-    "Download new lecture files from Google Classroom into folders on the PC. Two steps, like email: the first call "
-    "returns a plan, which you read back (how many files, which class, which folder) and ask 'Shall I download "
-    "them?'; only after the user says yes, call it again with the same arguments. 'course' is part of a class "
-    "name (empty = all classes). 'folder' optionally names the class folder, e.g. 'Deep Learning' (remembered). "
-    "Opens the user's browser to fetch each file, one by one, then files it away.",
-    {"type": "object", "properties": {"course": {"type": "string"}, "folder": {"type": "string"}}},
+    "STEP 1 of downloading lecture files from Google Classroom into folders on the PC: works out what to fetch and "
+    "returns a plan. It does NOT download anything. Read the plan back briefly (how many files, which class, "
+    "which folder) and ask 'Shall I download them?'. 'course' is part of a class name (empty = all classes). "
+    "'folder' optionally names the class folder, e.g. 'Deep Learning' (remembered). 'match' fetches only files whose "
+    "title contains these words. 'limit' fetches only the newest N (use 1 for 'just the latest one').",
+    {"type": "object", "properties": {"course": {"type": "string"}, "folder": {"type": "string"},
+                                      "match": {"type": "string"}, "limit": {"type": "integer"}}},
 )
 @_guard
-def classroom_download(course: str = "", folder: str = ""):
+def classroom_download(course: str = "", folder: str = "", match: str = "", limit: int = 0):
+    global _pending
+    if _batch:
+        return {"busy": True, "progress": f"{_batch['done']} of {_batch['total']} done, now {_batch['current']}"}
+    files, _, _ = _gather(course, new_only=True)
+    if match.strip():
+        files = [f for f in files if _norm(match) in _norm(f["title"])]
+    if not files:
+        return {"nothing_to_download": True, "note": "No new files match. Everything may already be downloaded."}
+    files = files[: max(1, min(int(limit), MAX_FILES))] if limit else files[:MAX_FILES]
+    one_class = len({x["course_id"] for x in files}) == 1
+    folders = {f["course_id"]: _folder_for(f["course_id"], f["course"], folder if one_class else "") for f in files}
+    with _lock:
+        _pending = {"turn": CONTEXT.get("turn", 0), "at": time.time(), "files": files, "folders": folders}
+    return {"started": False,
+            "note": "NOTHING has been downloaded yet. Read the plan back and ask 'Shall I download them?'. "
+                    "After they say yes, call classroom_download_start.",
+            "plan": {"files": len(files), "titles": [f["title"] for f in files[:6]],
+                     "folders": sorted({str(p) for p in folders.values()})}}
+
+
+@tool("STEP 2: start the download planned by classroom_download. Only works in a later turn, after the user "
+      "clearly said yes. With no plan waiting, it reports the progress or the result of the last download, so use "
+      "it to answer 'did they download?'.")
+@_guard
+def classroom_download_start():
     global _pending, _batch
     with _lock:
         if _batch:
             return {"busy": True, "progress": f"{_batch['done']} of {_batch['total']} done, now {_batch['current']}"}
-        key = (course.strip().lower(), folder.strip().lower())
-        turn = CONTEXT.get("turn", 0)
-        if _pending and _pending["key"] == key and _pending["turn"] < turn and user_confirmed(CONTEXT.get("last_user_message", "")):
-            files, folders = _pending["files"], _pending["folders"]
+        p = _pending
+        if p is None:
+            if _last_result["text"] and time.time() - _last_result["at"] < 3600:
+                return {"started": False, "last_result": _last_result["text"]}
+            return {"started": False, "error": "There's no download planned. Call classroom_download first."}
+        if p["turn"] >= CONTEXT.get("turn", 0):
+            return {"started": False, "error": "Not started: read the plan back and ask the user first."}
+        if time.time() - p["at"] > PENDING_MINUTES * 60:
             _pending = None
-            _batch = {"total": len(files), "done": 0, "current": files[0]["title"]}
-            threading.Thread(target=_run_batch, args=(files, folders), daemon=True, name="classroom-download").start()
-            return {"started": len(files), "note": "Tell the user it's started and that you'll say when it's done."}
-    files, _, _ = _gather(course, new_only=True)
-    if not files:
-        return {"nothing_new": True, "note": "Every file in that class has already been downloaded."}
-    files = files[:MAX_FILES]
-    folders = {}
-    for f in files:
-        folders[f["course_id"]] = _folder_for(f["course_id"], f["course"], folder if len({x["course_id"] for x in files}) == 1 else "")
-    with _lock:
-        _pending = {"key": key, "turn": turn, "files": files, "folders": folders}
-    return {"needs_confirmation": True,
-            "plan": {"files": len(files), "capped_at": MAX_FILES if len(files) == MAX_FILES else None,
-                     "titles": [f["title"] for f in files[:6]],
-                     "folders": sorted({str(p) for p in folders.values()})},
-            "note": "Read this back briefly and ask 'Shall I download them?'. Do not call again until they say yes."}
+            return {"started": False, "error": "That plan has expired. Call classroom_download again."}
+        if not user_confirmed(CONTEXT.get("last_user_message", "")):
+            return {"started": False, "error": "Not started: the user hasn't clearly said yes."}
+        _pending = None
+        _batch = {"total": len(p["files"]), "done": 0, "current": p["files"][0]["title"]}
+        threading.Thread(target=_run_batch, args=(p["files"], p["folders"]), daemon=True,
+                         name="classroom-download").start()
+    return {"started": True, "files": len(p["files"]),
+            "folders": sorted({str(x) for x in p["folders"].values()}),
+            "note": "Downloading now. Say it's started; the result will be announced when it's done. Don't claim it finished."}
+
+
+@tool("Open the lecture-downloads folder (or one class's folder) in File Explorer. 'course' is part of a class name.",
+      {"type": "object", "properties": {"course": {"type": "string"}}})
+def classroom_open_folder(course: str = ""):
+    import os
+
+    root = root_dir()
+    target = root
+    if course.strip():
+        with db() as c:
+            rows = c.execute("SELECT folder FROM classroom_folders").fetchall()
+        names = [r["folder"] for r in rows] + [p.name for p in root.iterdir() if p.is_dir()] if root.is_dir() else []
+        hit = next((n for n in names if course.strip().lower() in n.lower()), None)
+        if hit and _inside(root, root / hit) and (root / hit).is_dir():
+            target = root / hit
+    if not target.is_dir():
+        return {"error": f"{target} doesn't exist yet: nothing has been downloaded."}
+    os.startfile(str(target))
+    return {"ok": True, "opened": str(target)}

@@ -42,7 +42,8 @@ ABOUT_YOURSELF = (
     "it?', and only after a clear yes call claude_task_start. Claude starts with no memory of this conversation, "
     "so write the task out in full. "
     "You can list a class's lecture materials (classroom_materials) and download them into the university folder "
-    "(classroom_download): it opens their browser for each file, only after they say yes to your read-back. "
+    "(classroom_download to plan, classroom_download_start after they say yes to your read-back; it opens their "
+    "browser for each file). Never say files were downloaded unless a tool result says so. "
     "You have a quiet mode (quiet_mode) and optional QUIET_HOURS: while quiet you speak only when spoken to, "
     "and reminders, nags and the scheduled plan or check-in wait or show as notifications. "
     "You keep their to-do list and notes, plan their day on request (plan_my_day, then save_plan), and run an "
@@ -144,7 +145,7 @@ TOOL_GROUPS = [
      {"plan_my_day", "save_plan", "evening_checkin", "todo_add", "todo_list", "todo_done", "focus_start"}),
     (re.compile(r"lecture|slides?|handouts?|material|download|\bpdfs?\b|course (files|notes)|class notes|"
                 r"new (files|notes|slides)", re.I),
-     {"classroom_materials", "classroom_download", "classroom_courses"}),
+     {"classroom_materials", "classroom_download", "classroom_download_start", "classroom_open_folder", "classroom_courses"}),
     (re.compile(r"quiet|do not disturb|don.t disturb|\bdnd\b|\bshh+\b|be silent|leave me alone|in a (call|meeting|class)|"
                 r"i.m back|talk again|stop (talking|nagging)", re.I),
      {"quiet_mode"}),
