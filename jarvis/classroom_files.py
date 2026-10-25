@@ -327,8 +327,10 @@ def _fetch_one(item: dict, dest_dir: Path, downloads: Path) -> tuple[Path | None
             dest_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(target))
             return target, ""
-    return None, ("the browser didn't finish a download. Is it signed in to your school account"
-                  + (f" ({settings.classroom_account})" if settings.classroom_account else "") + "?")
+    if settings.classroom_account:
+        return None, f"the browser didn't finish a download. Is it signed in to {settings.classroom_account}?"
+    return None, ("the browser didn't finish a download, probably because it used your default Google account "
+                  "instead of your school one. Set 'School Google account' in Settings")
 
 
 _last_result: dict = {"text": "", "at": 0.0}
@@ -396,7 +398,13 @@ def classroom_download(course: str = "", folder: str = "", match: str = "", limi
     folders = {f["course_id"]: _folder_for(f["course_id"], f["course"], folder if one_class else "") for f in files}
     with _lock:
         _pending = {"turn": CONTEXT.get("turn", 0), "at": time.time(), "files": files, "folders": folders}
-    return {"started": False,
+    warning = None
+    if not settings.classroom_account:
+        warning = ("The school Google account isn't set, so the browser will use its default account and the "
+                   "download fails with a 403 if that's a personal one. Tell the user to set 'School Google account' "
+                   "in Settings (their school email), then try again, unless they say their browser only has the "
+                   "school account signed in.")
+    return {"started": False, "warning": warning,
             "note": "NOTHING has been downloaded yet. Read the plan back and ask 'Shall I download them?'. "
                     "After they say yes, call classroom_download_start.",
             "plan": {"files": len(files), "titles": [f["title"] for f in files[:6]],
