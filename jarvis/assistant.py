@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Iterator
 
 from . import (briefing, claude_bridge, claude_tasks, classroom, classroom_files, email_tools, focus,  # noqa: F401
-               google_tools,
+               google_tools, history, projects, routines,
                pc_tools, planner, quiet, reminders, tasks, web_tools)  # register their tools
 from .config import settings
 from .llm import Done, Provider, ToolCall
@@ -44,6 +44,12 @@ ABOUT_YOURSELF = (
     "You can list a class's lecture materials (classroom_materials) and download them into the university folder "
     "(classroom_download to plan, classroom_download_start after they say yes to your read-back; it opens their "
     "browser for each file). Never say files were downloaded unless a tool result says so. "
+    + ("You keep a searchable history of what you and the user say and the actions you take, on this PC only, for "
+       f"{settings.history_days} days (their messages, your replies and a one-line log of actions; not email contents "
+       "or web pages): search it with search_history and delete from it when asked with history_forget. "
+       if settings.history_days else "History is switched off, so you don't remember past conversations beyond memory facts. ")
+    + "You can report a project's state from git (project_status) and run the user's saved routines (run_routine, "
+    "list_routines, save_routine). "
     "You have a quiet mode (quiet_mode) and optional QUIET_HOURS: while quiet you speak only when spoken to, "
     "and reminders, nags and the scheduled plan or check-in wait or show as notifications. "
     "You keep their to-do list and notes, plan their day on request (plan_my_day, then save_plan), and run an "
@@ -127,8 +133,8 @@ TOOL_GROUPS = [
     (re.compile(r"homework|assignment|class ?room|\bclass(es)?\b|course|\bdue\b|submit|turn(ed)? in|\blabs?\b|quiz|"
                 r"deadline|overdue|exam|mid-?term|teacher|school|university|semester", re.I),
      {"classroom_assignments", "classroom_courses"}),
-    (re.compile(r"claude|\bcode\b|coding|\btask\b|\brepo(sitory)?\b|project|folder|\bbugs?\b|\btests?\b|fedcard", re.I),
-     {"claude_task_prepare", "claude_task_start", "claude_task_status", "claude_task_cancel", "claude_code_status"}),
+    (re.compile(r"claude|\bcode\b|coding|\btask\b|\brepo(sitory)?\b|project|folder|\bbugs?\b|\btests?\b|fedcard|left off|where (were|did) we|\bgit\b|\bcommits?\b|\bbranch", re.I),
+     {"claude_task_prepare", "claude_task_start", "claude_task_status", "claude_task_cancel", "claude_code_status", "project_status"}),
     (re.compile(r"focus|study|studying|studied|revis|pomodoro|concentrat|distract|streak|work(ing)? for|"
                 r"(for|next) \d+ ?(min|hour)|timer|back to (it|work)|keep me", re.I),
      {"focus_start", "focus_stop", "focus_status"}),
@@ -146,6 +152,12 @@ TOOL_GROUPS = [
     (re.compile(r"lecture|slides?|handouts?|material|download|\bpdfs?\b|course (files|notes)|class notes|"
                 r"new (files|notes|slides)", re.I),
      {"classroom_materials", "classroom_download", "classroom_download_start", "classroom_open_folder", "classroom_courses"}),
+    (re.compile(r"last (week|month|time)|yesterday|earlier|remember when|did i (say|ask|tell|send)|what did (i|we)|"
+                r"struggl|conversation|history|we (talked|discussed|spoke)|when did (i|we)|forget (what|that|everything|all|my)",
+                re.I),
+     {"search_history", "history_forget"}),
+    (re.compile(r"routine|macro|set-?up|\bworkflow|run my|start my|my usual", re.I),
+     {"list_routines", "run_routine", "save_routine"}),
     (re.compile(r"quiet|do not disturb|don.t disturb|\bdnd\b|\bshh+\b|be silent|leave me alone|in a (call|meeting|class)|"
                 r"i.m back|talk again|stop (talking|nagging)", re.I),
      {"quiet_mode"}),
@@ -275,11 +287,17 @@ class Assistant:
         snapshot = list(self.history)
         CONTEXT["last_user_message"] = user_text
         CONTEXT["turn"] += 1
+        history.record("user", user_text)
         self.history.append({"role": "user", "content": user_text})
         self._trim()
+        spoken: list[str] = []
         try:
-            yield from self._respond_loop()
+            for chunk in self._respond_loop():
+                spoken.append(chunk)
+                yield chunk
+            history.record("assistant", "".join(spoken))
         except GeneratorExit:
+            history.record("assistant", "".join(spoken))
             # The listener stopped reading: the user interrupted. Keep what was said so far,
             # so the model knows it was cut off (and history stays user/assistant alternating).
             said = "".join(self._partial).strip()
@@ -306,6 +324,7 @@ class Assistant:
         # Built once per turn: if it were rebuilt after a remember() call, the
         # model would see the new fact in its memory and claim it already knew it.
         system = system_prompt()
+        retried = False
         for _ in range(MAX_TOOL_ROUNDS):
             text, calls, raw = [], [], None
             self._partial = text
@@ -317,6 +336,15 @@ class Assistant:
                     calls.append(ev)
                 elif isinstance(ev, Done):
                     raw = ev.raw
+            if not calls and not "".join(text).strip():
+                # The model sometimes returns nothing at all. Ask once more, then say so rather than stay silent.
+                if not retried:
+                    retried = True
+                    log.warning("the model returned nothing; asking again")
+                    continue
+                apology = "Sorry, I lost my train of thought. Could you say that again?"
+                text.append(apology)
+                yield apology
             self.history.append({"role": "assistant", "content": "".join(text), "tool_calls": calls, "raw": raw})
             if not calls:
                 return

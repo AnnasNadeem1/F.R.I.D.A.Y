@@ -15,6 +15,7 @@ class Tool:
 
 
 REGISTRY: dict[str, Tool] = {}
+AFTER_TOOL: list[Callable[[str, dict, str], None]] = []  # called with (name, args, json result) after a tool runs
 
 # What the user actually said this turn, set by the Assistant. Lets tools with
 # real-world side effects (sending email) check for the user's own consent
@@ -47,4 +48,10 @@ def run_tool(name: str, args: dict) -> str:
         result = t.func(**args)
     except Exception as e:
         return json.dumps({"error": f"{type(e).__name__}: {e}"})
-    return json.dumps(result if result is not None else {"ok": True}, default=str)
+    out = json.dumps(result if result is not None else {"ok": True}, default=str)
+    for hook in AFTER_TOOL:
+        try:
+            hook(name, args, out)
+        except Exception:
+            pass  # a logging hook must never break a tool
+    return out

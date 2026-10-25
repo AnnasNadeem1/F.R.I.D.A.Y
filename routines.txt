@@ -1,0 +1,7 @@
+# Routines: say "run my <name>" and Friday does each step in order. One per line:
+#   name = step; step; step
+# Steps:  open <app>   site <address>   focus <minutes> <topic> [allow <site>]   volume <0-100>
+#         media <play_pause|next|previous|mute>   quiet <minutes>   todo <text>   note <text>
+#         wait <seconds up to 10>   say <text>
+# Example (remove the # to use it):
+# study setup = open Visual Studio Code; site classroom.google.com; volume 30; focus 45 deep learning

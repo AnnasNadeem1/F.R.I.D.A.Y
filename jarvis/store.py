@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS classroom_folders (
     course_id TEXT PRIMARY KEY,
     folder TEXT NOT NULL            -- the short name chosen for this class's folder
 );
+CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,               -- local time, YYYY-MM-DD HH:MM:SS
+    kind TEXT NOT NULL,             -- user | assistant | action
+    text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS history_at ON history (at);
 CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY,
     text TEXT NOT NULL,
@@ -68,6 +75,21 @@ CREATE TABLE IF NOT EXISTS plans (
 def _migrate(conn: sqlite3.Connection):
     """Add columns introduced after the database was first created."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders)")}
+    try:  # full-text search over history; without FTS5 the search falls back to substring matching
+        conn.executescript("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS history_fts USING fts5(
+                text, content='history', content_rowid='id', tokenize='porter unicode61');
+            CREATE TRIGGER IF NOT EXISTS history_ai AFTER INSERT ON history BEGIN
+                INSERT INTO history_fts(rowid, text) VALUES (new.id, new.text);
+            END;
+            CREATE TRIGGER IF NOT EXISTS history_ad AFTER DELETE ON history BEGIN
+                INSERT INTO history_fts(history_fts, rowid, text) VALUES ('delete', old.id, old.text);
+            END;""")
+        if conn.execute("SELECT count(*) FROM history_fts").fetchone()[0] == 0 \
+                and conn.execute("SELECT count(*) FROM history").fetchone()[0]:
+            conn.execute("INSERT INTO history_fts(history_fts) VALUES ('rebuild')")
+    except sqlite3.OperationalError:
+        pass
     if "source" not in cols:
         # Who created a reminder: NULL = the user; "classroom:<id>:<when>" = automatic,
         # so it can be found again (e.g. removed once the work is turned in).

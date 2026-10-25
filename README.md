@@ -19,6 +19,9 @@ The code and folder are called `jarvis`. The assistant's name is a setting (`ASS
 | **Claude Code** | Tells you when a session finishes or needs you, and can start read-only or edit tasks on your Claude plan, after your spoken yes. |
 | **Web** | DuckDuckGo search and news, page reading, Open-Meteo weather. No keys needed. |
 | **Phone** | A private web app over Tailscale: talk to her, get push notifications. |
+| **Projects** | "Where did we leave off on jarvis?" is answered from the project itself: git branch, uncommitted changes, recent commits, the README, and the latest Claude Code activity. Read-only. |
+| **History** | A local, searchable record of what you and she said and did, so "what was I confused about last week?" finds the real answer. Kept 90 days by default, and she can forget on request. |
+| **Routines** | Named voice macros in a plain text file: "run my study setup" opens your apps and sites, sets the volume and starts a focus session. |
 | **Quiet mode** | Quiet hours and a QUIET button: she stays silent and notifies you instead. |
 
 ## Quick start
@@ -89,6 +92,12 @@ A HUD-style window plus a tray icon. The core's colour shows her state: amber is
 
 Apps are found through the Start Menu. Looking at the screen takes one screenshot of your main display and sends it to Gemini, and only when you ask. Locking, screen and clipboard actions only run if your own message asks for them, which stops a web page or an email from triggering them.
 
+## Projects, history and routines
+
+- **Project status:** "Where did we leave off on fedcard?" reads the project's git state and README (read-only, nothing is changed) and suggests a next step. It works for the projects in `CLAUDE_PROJECTS` (`name=folder;name=folder`); with no name she gives a one-line state of each.
+- **History:** "What was I struggling with last week?" "Did I send that email?" She searches a local log of your messages, her replies and a one-line record of actions she took (emails sent, events added, downloads, Claude tasks). Tool results, email contents and web pages are never logged. Entries older than `HISTORY_DAYS` (default 90, 0 = keep nothing) are deleted automatically. Say "forget what I said about SQL" or "delete everything you saved", or use **Settings → CLEAR HISTORY**.
+- **Routines:** `routines.txt` holds one routine per line, for example `study setup = open Visual Studio Code; site classroom.google.com; volume 30; focus 45 deep learning`. Steps are a fixed safe set (`open`, `site`, `focus`, `volume`, `media`, `quiet`, `todo`, `note`, `wait`, `say`) that run directly, with no model involved. Say "run my study setup", "what routines do I have?", or "save a routine called wind down that adds a to-do to pack my bag and goes quiet for 30 minutes". **Settings → EDIT ROUTINES** opens the file.
+
 ## Quiet hours and quiet mode
 
 `QUIET_HOURS=23:00-07:00` (or the QUIET button, or "go quiet for an hour") makes her speak only when spoken to. Reminders, Claude alerts and focus messages appear as notifications and chat notes, and the scheduled briefing, plan and check-in wait. A focus session you start yourself still gets its nags during quiet hours. Quiet mode silences everything until it ends.
@@ -113,6 +122,7 @@ Most of these can be changed in the app. Secrets live in `.env`, and `.env.examp
 | `PLAN_TIME`, `CHECKIN_TIME` | off | Automatic day plan and evening check-in (HH:MM) |
 | `STUDY_GOAL_MINUTES`, `STUDY_STREAK_MINUTES` | `120`, `25` | Daily focus goal, minutes that keep a streak |
 | `DISTRACTION_WATCH`, `STUDY_HOURS` | `1`, off | Distraction nags, and extra hours to watch |
+| `HISTORY_DAYS` | `90` | How long conversations and actions are kept for searching (0 = keep nothing) |
 | `QUIET_HOURS` | off | Daily range when she stays silent, e.g. `23:00-07:00` |
 | `CLASSROOM_FOLDER`, `CLASSROOM_ACCOUNT` | `Documents\University`, | Where downloaded lectures go, and the school email for the browser |
 | `CLAUDE_TASKS`, `CLAUDE_PROJECTS`, `CLAUDE_TASK_MODEL`, `CLAUDE_TASK_MINUTES` | `1`, see below, `sonnet`, `10` | Voice-launched Claude tasks |
@@ -190,7 +200,7 @@ This adds three small hooks to `~/.claude/settings.json` (backed up first). Each
 
 ## Privacy and safety
 
-- **Stays on your PC:** the database (`data/jarvis.db`), the distraction watch, tokens and `.env`. Git ignores `.env`, the Google files, `models/` and `data/`.
+- **Stays on your PC:** the database (`data/jarvis.db`, including the history log), the distraction watch, tokens and `.env`. Git ignores `.env`, the Google files, `models/` and `data/`.
 - **Sent to services:** your messages and tool results go to Gemini or Groq. With `STT_ENGINE=groq`, voice clips go to Groq for transcription. ElevenLabs gets the text she speaks. Screen descriptions go to Gemini, only when you ask.
 - **Guards in code, not just in the prompt:** email needs a read-back and a clear yes. Lock, screen and clipboard actions need your own words. Email, calendar and web content is treated as data, never as instructions. Claude tasks are confirmed, limited to allowed projects, and can't delete.
 - **No cost surprises:** everything runs on free tiers. Tools are only offered to the model when the conversation needs them, which keeps requests small enough for the free limits.
@@ -233,6 +243,9 @@ jarvis/
   remote/          phone app: server, web app, Tailscale, push
   doctor.py        self-check
   store.py         SQLite
+  projects.py      git-based project status
+  history.py       searchable history, forget, automatic cleanup
+  routines.py      named step sequences from routines.txt
 hooks/             the Claude Code hook script
-pronunciations.txt, vocabulary.txt, distractions.txt
+pronunciations.txt, vocabulary.txt, distractions.txt, routines.txt
 ```

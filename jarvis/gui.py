@@ -1120,6 +1120,21 @@ class MainWindow(QMainWindow):
         self.ed_quiet_hours.setMaximumWidth(360)
         f.addRow(_label("Quiet hours: stay silent, notifications only"), self.ed_quiet_hours)
 
+        f = section("HISTORY AND ROUTINES")
+        self.sp_history = QSpinBox(minimum=0, maximum=730, value=settings.history_days, suffix=" days")
+        self.sp_history.setMaximumWidth(140)
+        self.sp_history.setToolTip("0 = keep nothing")
+        f.addRow(_label("Keep what we say and do, so I can search it (0 = keep nothing)"), self.sp_history)
+        hist_row = QHBoxLayout()
+        clear_hist = QPushButton("CLEAR HISTORY")
+        clear_hist.clicked.connect(self.clear_history)
+        edit_routines = QPushButton("EDIT ROUTINES")
+        edit_routines.clicked.connect(self.open_routines)
+        hist_row.addWidget(clear_hist)
+        hist_row.addWidget(edit_routines)
+        hist_row.addStretch(1)
+        f.addRow(hist_row)
+
         f = section("CLAUDE TASKS BY VOICE")
         self.chk_ctasks = QCheckBox('Let me start Claude Code tasks by voice ("ask Claude to ...")')
         self.chk_ctasks.setChecked(settings.claude_tasks)
@@ -1423,6 +1438,7 @@ class MainWindow(QMainWindow):
             "CLAUDE_TASKS": "1" if self.chk_ctasks.isChecked() else "0",
             "CLAUDE_TASK_MODEL": self.cb_cmodel.currentData(),
             "CLAUDE_TASK_MINUTES": str(self.sp_cminutes.value()),
+            "HISTORY_DAYS": str(self.sp_history.value()),
             "DISTRACTION_WATCH": "1" if self.chk_watch.isChecked() else "0",
             "STUDY_GOAL_MINUTES": str(self.sp_goal.value()),
             "STUDY_STREAK_MINUTES": str(self.sp_streak.value()),
@@ -1439,6 +1455,21 @@ class MainWindow(QMainWindow):
                                                if p.strip().replace(".", "", 1).isdigit()) or "24,2",
         })
         QApplication.instance().restart()
+
+    def clear_history(self):
+        from . import history
+
+        if QMessageBox.question(self, settings.name, "Delete everything she has saved about past conversations "
+                                "and actions? Memory facts, reminders and your to-do list are not touched.") \
+                == QMessageBox.StandardButton.Yes:
+            QMessageBox.information(self, settings.name, f"Deleted {history.clear_all()} entries.")
+
+    def open_routines(self):
+        from . import routines
+
+        if not routines.ROUTINES_FILE.exists():
+            routines.ROUTINES_FILE.write_text(routines.HEADER, encoding="utf-8")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(routines.ROUTINES_FILE)))
 
     def _update_classroom_state(self):
         from .classroom import connected
